@@ -1,0 +1,11 @@
+**/node_modules
+**/.git
+**/.env
+**/.env.*
+**/*.log
+**/.DS_Store
+client/.vite
+# Exclude all dist EXCEPT client/dist (pre-built client shipped into image)
+server/dist
+shared
+README.md

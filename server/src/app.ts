@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
+import path from 'path';
+import fs from 'fs';
 import { matchRouter } from './api/matchRoutes.js';
 import { predictionRouter } from './api/predictionRoutes.js';
 import { dataRouter } from './api/dataRoutes.js';
@@ -31,6 +33,19 @@ app.use('/api/data', dataRouter);
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Serve built client (static + SPA fallback) when configured (production / Docker).
+// BASE_PATH = '/worldcup', STATIC_DIR = '/app/public' in container.
+const STATIC_DIR = process.env.STATIC_DIR;
+const BASE_PATH = process.env.BASE_PATH;
+if (STATIC_DIR && BASE_PATH && fs.existsSync(STATIC_DIR)) {
+  const indexPath = path.join(STATIC_DIR, 'index.html');
+  app.use(BASE_PATH, express.static(STATIC_DIR));
+  // SPA fallback: any sub-path under BASE_PATH returns index.html
+  app.get(BASE_PATH, (_req, res) => res.sendFile(indexPath));
+  app.get(`${BASE_PATH}/*`, (_req, res) => res.sendFile(indexPath));
+  console.log(`[INFO] Serving static client at ${BASE_PATH} from ${STATIC_DIR}`);
+}
 
 // Start server
 app.listen(PORT, () => {
