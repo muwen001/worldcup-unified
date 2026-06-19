@@ -1,0 +1,12 @@
+services:
+  worldcup-unified:
+    build: .
+    container_name: worldcup-unified
+    ports:
+      - "8081:3001"
+    restart: unless-stopped
+    mem_limit: 700m
+    # Mount host client/dist over the baked-in public so frontend updates
+    # only need `rsync` + `restart` (no image rebuild).
+    volumes:
+      - ./client/dist:/app/public:ro

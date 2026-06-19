@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import type { Match, MatchResult, DualPrediction } from '../../types';
-import { formatOdds, getResultName } from '../../utils/oddsCalculator';
+import type { Match, MatchResult, Prediction, DualPrediction } from '../../types';
+import { getResultName, calculateNormalizedProbabilities } from '../../utils/oddsCalculator';
 import { Clock } from 'lucide-react';
 import { MatchDetailModal } from './MatchDetailModal';
 
@@ -9,108 +9,148 @@ interface MatchCardProps {
   prediction?: DualPrediction;
 }
 
+const OUTCOME_STYLE: Record<MatchResult, string> = {
+  home: 'bg-blue-100 text-blue-700',
+  draw: 'bg-yellow-100 text-yellow-700',
+  away: 'bg-purple-100 text-purple-700',
+};
+
+const SEG_BAR: Record<MatchResult, string> = {
+  home: 'bg-blue-500',
+  draw: 'bg-gray-400',
+  away: 'bg-purple-500',
+};
+
+interface EngineCardData {
+  label: 'A' | 'B';
+  name: string;
+  badge: string;          // engine label badge bg
+  cardBorder: string;     // card border tint
+  pred?: Prediction;
+  scoreText: string;
+  outcomeCorrect: boolean | null;
+  scoreCorrect: boolean | null;
+}
+
+/** Result mark — colored ✓/✗ (green/red) or gray dash when unknown */
+function Mark({ correct }: { correct: boolean | null }) {
+  if (correct === null) return <span className="text-gray-300">—</span>;
+  return (
+    <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold ${
+      correct ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+    }`}>
+      {correct ? '✓' : '✗'}
+    </span>
+  );
+}
+
+/** Unified per-engine prediction card. Same structure for upcoming & finished. */
+const EnginePredictionCard: React.FC<{ data: EngineCardData; isFinished: boolean }> = ({ data, isFinished }) => {
+  const { label, name, badge, cardBorder, pred, scoreText, outcomeCorrect, scoreCorrect } = data;
+  if (!pred) {
+    return (
+      <div className={`rounded-lg border ${cardBorder} p-2.5 text-center text-[11px] text-gray-400`}>
+        引擎{label} 无预测
+      </div>
+    );
+  }
+  const probs = pred.probabilities;
+  const segs: { key: MatchResult; v: number }[] = [
+    { key: 'home', v: probs.home },
+    { key: 'draw', v: probs.draw },
+    { key: 'away', v: probs.away },
+  ];
+
+  return (
+    <div className={`rounded-lg border ${cardBorder} p-2.5 flex flex-col gap-2`}>
+      {/* header */}
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badge}`}>{label}</span>
+        <span className="text-[11px] text-gray-500 truncate">{name}</span>
+        {!isFinished && (
+          <span className="ml-auto text-[10px] text-gray-400">置信 {Math.round((pred.confidence ?? 0) * 100)}%</span>
+        )}
+      </div>
+
+      {/* prediction + result together: correctness mark follows its item when finished */}
+      <div className="flex items-center justify-between flex-wrap gap-y-1">
+        <span className="text-[11px] text-gray-400">{isFinished ? '预测 / 结果' : '预测'}</span>
+        <div className="flex items-center gap-1.5">
+          {scoreText && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-gray-700">
+              {scoreText}
+              {isFinished && scoreCorrect !== null && <Mark correct={scoreCorrect} />}
+            </span>
+          )}
+          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${OUTCOME_STYLE[pred.predictedOutcome]}`}>
+            {getResultName(pred.predictedOutcome)}
+            {isFinished && outcomeCorrect !== null && <Mark correct={outcomeCorrect} />}
+          </span>
+        </div>
+      </div>
+
+      {/* probabilities */}
+      <div>
+        <div className="flex h-1.5 rounded-full overflow-hidden">
+          {segs.map((s) => (
+            <div key={s.key} style={{ width: `${Math.max(s.v, 0) * 100}%` }} className={SEG_BAR[s.key]} />
+          ))}
+        </div>
+        <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
+          <span>主{Math.round(probs.home * 100)}%</span>
+          <span>平{Math.round(probs.draw * 100)}%</span>
+          <span>客{Math.round(probs.away * 100)}%</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const mainOdds = match.odds[0];
 
   const getStageName = (stage: string): string => {
     const names: Record<string, string> = {
-      group: '小组赛',
-      round_of_32: '1/32决赛',
-      round_of_16: '1/16决赛',
-      quarter: '1/4决赛',
-      semi: '半决赛',
-      final: '决赛',
+      group: '小组赛', round_of_32: '1/32决赛', round_of_16: '1/16决赛',
+      quarter: '1/4决赛', semi: '半决赛', final: '决赛',
     };
     return names[stage] || stage;
   };
 
   const isFinished = match.status === 'completed';
   const isLive = match.status === 'live';
-
   const actualScoreText = match.score ? `${match.score.home}:${match.score.away}` : '-';
 
-  // 判断预测是否正确
   const isOutcomeCorrect = (predicted: MatchResult): boolean | null => {
     if (!isFinished || !match.result) return null;
     return predicted === match.result;
   };
-
-  const isScoreCorrect = (predHome: number, predAway: number): boolean | null => {
+  const isScoreCorrect = (h: number, a: number): boolean | null => {
     if (!isFinished || !match.score) return null;
-    return predHome === match.score.home && predAway === match.score.away;
+    return h === match.score.home && a === match.score.away;
   };
 
-  // Engine A prediction
   const predA = prediction?.engineA;
   const predAScore = predA?.scorePredictions?.[0];
   const predAScoreText = predAScore ? `${predAScore.homeScore}:${predAScore.awayScore}` : '';
-  const predAOutcomeCorrect = predA ? isOutcomeCorrect(predA.predictedOutcome) : null;
-  const predAScoreCorrect = predAScore ? isScoreCorrect(predAScore.homeScore, predAScore.awayScore) : null;
-
-  // Engine B prediction
   const predB = prediction?.engineB;
   const predBScore = predB?.scorePredictions?.[0];
   const predBScoreText = predBScore ? `${predBScore.homeScore}:${predBScore.awayScore}` : '';
-  const predBOutcomeCorrect = predB ? isOutcomeCorrect(predB.predictedOutcome) : null;
-  const predBScoreCorrect = predBScore ? isScoreCorrect(predBScore.homeScore, predBScore.awayScore) : null;
 
-  // 获取胜平负预测的样式
-  const getOutcomeStyle = (isCorrect: boolean | null): string => {
-    if (isCorrect === null) return 'bg-gray-100 text-gray-600'; // 未结束
-    if (isCorrect) return 'bg-green-500 text-white'; // 正确 - 绿色
-    return 'bg-red-500 text-white'; // 错误 - 红色
+  const engineAData: EngineCardData = {
+    label: 'A', name: 'Elo+Dixon',
+    badge: 'bg-blue-100 text-blue-600', cardBorder: 'border-blue-100',
+    pred: predA, scoreText: predAScoreText,
+    outcomeCorrect: predA ? isOutcomeCorrect(predA.predictedOutcome) : null,
+    scoreCorrect: predAScore ? isScoreCorrect(predAScore.homeScore, predAScore.awayScore) : null,
   };
-
-  // 获取比分预测的样式
-  const getScoreStyle = (isCorrect: boolean | null): string => {
-    if (isCorrect === null) return 'text-gray-600'; // 未结束
-    if (isCorrect) return 'text-green-600 font-bold'; // 正确 - 绿色
-    return 'text-red-500 line-through'; // 错误 - 红色+删除线
-  };
-
-
-
-  // 渲染引擎预测行
-  const renderEnginePrediction = (
-    engineLabel: string,
-    engineName: string,
-    bgColor: string,
-    predOutcome: MatchResult | undefined,
-    predScoreText: string,
-    outcomeCorrect: boolean | null,
-    scoreCorrect: boolean | null
-  ) => {
-    if (!predOutcome) return null;
-
-    return (
-      <div className={`flex items-center justify-between p-2.5 rounded-lg border ${
-        isFinished
-          ? (outcomeCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200')
-          : `${bgColor}`
-      }`}>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-            engineLabel === 'A' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'
-          }`}>
-            {engineLabel}
-          </span>
-          <span className="text-xs text-gray-500">{engineName}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* 比分预测 */}
-          {predScoreText && (
-            <span className={`text-xs ${getScoreStyle(scoreCorrect)}`}>
-              {predScoreText}
-            </span>
-          )}
-          {/* 胜平负预测 */}
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getOutcomeStyle(outcomeCorrect)}`}>
-            {getResultName(predOutcome)}
-          </span>
-        </div>
-      </div>
-    );
+  const engineBData: EngineCardData = {
+    label: 'B', name: '赔率+实力',
+    badge: 'bg-amber-100 text-amber-600', cardBorder: 'border-amber-100',
+    pred: predB, scoreText: predBScoreText,
+    outcomeCorrect: predB ? isOutcomeCorrect(predB.predictedOutcome) : null,
+    scoreCorrect: predBScore ? isScoreCorrect(predBScore.homeScore, predBScore.awayScore) : null,
   };
 
   return (
@@ -118,138 +158,63 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
       <div
         onClick={() => setIsModalOpen(true)}
         className={`bg-white rounded-xl shadow-md overflow-hidden cursor-pointer hover:shadow-lg transition-shadow ${
-          isLive ? 'ring-2 ring-danger' : ''
-        } ${isFinished ? 'border-l-4 border-gray-400' : ''}`}
+          isLive ? 'ring-2 ring-danger' : ''} ${isFinished ? 'border-l-4 border-gray-300' : ''}`}
       >
-        {/* Match header */}
-        <div className="p-4">
+        {/* Header */}
+        <div className="p-4 pb-3">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-gray-500">
+            <span className="text-xs text-gray-500 truncate">
               {match.stage === 'group' ? `${match.group}组 · ${getStageName(match.stage)}` : getStageName(match.stage)}
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <Clock className="w-3.5 h-3.5 text-gray-400" />
-              <span className="text-sm font-medium text-gray-600">{match.time}</span>
+              <span className="text-xs font-medium text-gray-600">{match.time}</span>
               {isLive && (
-                <span className="bg-danger text-white text-xs px-2 py-0.5 rounded-full font-bold animate-pulse">
-                  LIVE
-                </span>
+                <span className="bg-danger text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold animate-pulse">LIVE</span>
               )}
               {isFinished && (
-                <span className="bg-gray-600 text-white text-xs px-2 py-0.5 rounded-full font-medium">
-                  已结束
-                </span>
+                <span className="bg-gray-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-medium">已结束</span>
               )}
             </div>
           </div>
 
-          {/* Teams + Score */}
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+          {/* Teams + score */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
               <span className="text-3xl">{match.homeTeam.flag}</span>
-              <span className="font-bold text-sm truncate">{match.homeTeam.nameCn}</span>
-              <span className="text-xs text-gray-400">#{match.homeTeam.fifaRank}</span>
+              <span className="font-bold text-sm truncate w-full text-center">{match.homeTeam.nameCn}</span>
+              <span className="text-[10px] text-gray-400">#{match.homeTeam.fifaRank}</span>
             </div>
 
-            <div className="flex flex-col items-center gap-1 px-4">
+            <div className="flex flex-col items-center gap-1 px-2">
               {isFinished || isLive ? (
-                <div className="text-2xl font-bold text-gray-900">{actualScoreText}</div>
+                <div className="text-2xl font-bold text-gray-900 whitespace-nowrap">{actualScoreText}</div>
               ) : (
-                <div className="text-lg font-bold text-gray-400">VS</div>
+                <div className="text-base font-bold text-gray-400">VS</div>
               )}
-              {/* 实际结果标签 */}
               {isFinished && match.result && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 ${
-                  match.result === 'home' ? 'bg-blue-100 text-blue-700' :
-                  match.result === 'draw' ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-purple-100 text-purple-700'
-                }`}>
-                  {match.result === 'home' ? '主胜' : match.result === 'draw' ? '平局' : '客胜'}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${OUTCOME_STYLE[match.result]}`}>
+                  {getResultName(match.result)}
                 </span>
               )}
             </div>
 
-            <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
+            <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
               <span className="text-3xl">{match.awayTeam.flag}</span>
-              <span className="font-bold text-sm truncate">{match.awayTeam.nameCn}</span>
-              <span className="text-xs text-gray-400">#{match.awayTeam.fifaRank}</span>
+              <span className="font-bold text-sm truncate w-full text-center">{match.awayTeam.nameCn}</span>
+              <span className="text-[10px] text-gray-400">#{match.awayTeam.fifaRank}</span>
             </div>
           </div>
         </div>
 
-        {/* Odds */}
-        {mainOdds && (
-          <div className="px-4 pb-3">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500">主胜</div>
-                <div className="font-bold text-sm">{formatOdds(mainOdds.homeWin)}</div>
-              </div>
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500">平局</div>
-                <div className="font-bold text-sm">{formatOdds(mainOdds.draw)}</div>
-              </div>
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500">客胜</div>
-                <div className="font-bold text-sm">{formatOdds(mainOdds.awayWin)}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Dual Predictions */}
+        {/* Dual engine prediction cards (unified for all states) */}
         {prediction && (
-          <div className="px-4 pb-4 space-y-2">
-            {/* 已结束比赛的结果概览 */}
-            {isFinished && (
-              <div className="flex items-center justify-center gap-4 py-2 mb-2 bg-gray-50 rounded-lg">
-                <div className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">胜平负</div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium ${predAOutcomeCorrect === true ? 'text-green-600' : predAOutcomeCorrect === false ? 'text-red-500' : 'text-gray-400'}`}>
-                      A: {predAOutcomeCorrect === true ? '✓' : predAOutcomeCorrect === false ? '✗' : '-'}
-                    </span>
-                    <span className={`text-xs font-medium ${predBOutcomeCorrect === true ? 'text-green-600' : predBOutcomeCorrect === false ? 'text-red-500' : 'text-gray-400'}`}>
-                      B: {predBOutcomeCorrect === true ? '✓' : predBOutcomeCorrect === false ? '✗' : '-'}
-                    </span>
-                  </div>
-                </div>
-                <div className="w-px h-8 bg-gray-300" />
-                <div className="text-center">
-                  <div className="text-xs text-gray-500 mb-1">比分</div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium ${predAScoreCorrect === true ? 'text-green-600' : predAScoreCorrect === false ? 'text-red-500' : 'text-gray-400'}`}>
-                      A: {predAScoreCorrect === true ? '✓' : predAScoreCorrect === false ? '✗' : '-'}
-                    </span>
-                    <span className={`text-xs font-medium ${predBScoreCorrect === true ? 'text-green-600' : predBScoreCorrect === false ? 'text-red-500' : 'text-gray-400'}`}>
-                      B: {predBScoreCorrect === true ? '✓' : predBScoreCorrect === false ? '✗' : '-'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Engine A */}
-            {renderEnginePrediction(
-              'A',
-              'Elo+Dixon',
-              'bg-blue-50 border-blue-100',
-              predA?.predictedOutcome,
-              predAScoreText,
-              predAOutcomeCorrect,
-              predAScoreCorrect
-            )}
-
-            {/* Engine B */}
-            {renderEnginePrediction(
-              'B',
-              '赔率+实力',
-              'bg-amber-50 border-amber-100',
-              predB?.predictedOutcome,
-              predBScoreText,
-              predBOutcomeCorrect,
-              predBScoreCorrect
-            )}
+          <div className="px-4 pb-4">
+            <div className="grid grid-cols-2 gap-2.5">
+              <EnginePredictionCard data={engineAData} isFinished={isFinished} />
+              <EnginePredictionCard data={engineBData} isFinished={isFinished} />
+            </div>
+            {!mainOdds ? null : null}
           </div>
         )}
       </div>
