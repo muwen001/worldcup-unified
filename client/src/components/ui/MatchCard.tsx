@@ -3,6 +3,7 @@ import type { Match, MatchResult, Prediction, DualPrediction } from '../../types
 import { getResultName, calculateNormalizedProbabilities } from '../../utils/oddsCalculator';
 import { Clock } from 'lucide-react';
 import { MatchDetailModal } from './MatchDetailModal';
+import { Flag } from './Flag';
 
 interface MatchCardProps {
   match: Match;
@@ -68,7 +69,7 @@ const EnginePredictionCard: React.FC<{ data: EngineCardData; isFinished: boolean
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${badge}`}>{label}</span>
         <span className="text-[11px] text-gray-500 truncate">{name}</span>
         {!isFinished && (
-          <span className="ml-auto text-[10px] text-gray-400">置信 {Math.round((pred.confidence ?? 0) * 100)}%</span>
+          <span className="ml-auto text-[10px] text-gray-400">置信 {Math.round(pred.confidence ?? 0)}%</span>
         )}
       </div>
 
@@ -132,10 +133,10 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
   };
 
   const predA = prediction?.engineA;
-  const predAScore = predA?.scorePredictions?.[0];
+  const predAScore = predA?.scorePredictions?.find((s) => s.isMostLikely) ?? predA?.scorePredictions?.[0];
   const predAScoreText = predAScore ? `${predAScore.homeScore}:${predAScore.awayScore}` : '';
   const predB = prediction?.engineB;
-  const predBScore = predB?.scorePredictions?.[0];
+  const predBScore = predB?.scorePredictions?.find((s) => s.isMostLikely) ?? predB?.scorePredictions?.[0];
   const predBScoreText = predBScore ? `${predBScore.homeScore}:${predBScore.awayScore}` : '';
 
   const engineAData: EngineCardData = {
@@ -181,7 +182,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
           {/* Teams + score */}
           <div className="flex items-center justify-between gap-3">
             <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
-              <span className="text-3xl">{match.homeTeam.flag}</span>
+              <Flag teamId={match.homeTeam.id} emoji={match.homeTeam.flag} className="text-3xl" />
               <span className="font-bold text-sm truncate w-full text-center">{match.homeTeam.nameCn}</span>
               <span className="text-[10px] text-gray-400">#{match.homeTeam.fifaRank}</span>
             </div>
@@ -200,7 +201,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
             </div>
 
             <div className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
-              <span className="text-3xl">{match.awayTeam.flag}</span>
+              <Flag teamId={match.awayTeam.id} emoji={match.awayTeam.flag} className="text-3xl" />
               <span className="font-bold text-sm truncate w-full text-center">{match.awayTeam.nameCn}</span>
               <span className="text-[10px] text-gray-400">#{match.awayTeam.fifaRank}</span>
             </div>
