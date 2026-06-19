@@ -1,6 +1,7 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { CheckCircle, XCircle, TrendingUp, Target } from 'lucide-react';
+import { Flag } from '../../components/ui/Flag';
 
 export const HistoryPage: React.FC = () => {
   const { state } = useApp();
@@ -97,11 +98,11 @@ export const HistoryPage: React.FC = () => {
                 <div key={pred.matchId} className="p-4 rounded-lg bg-gray-50 border">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">{match.homeTeam.flag}</span>
+                      <Flag teamId={match.homeTeam.id} emoji={match.homeTeam.flag} className="text-2xl" />
                       <span className="font-medium">{match.homeTeam.nameCn}</span>
                       <span className="text-gray-400">vs</span>
                       <span className="font-medium">{match.awayTeam.nameCn}</span>
-                      <span className="text-2xl">{match.awayTeam.flag}</span>
+                      <Flag teamId={match.awayTeam.id} emoji={match.awayTeam.flag} className="text-2xl" />
                     </div>
                     <div className="text-sm text-gray-500">
                       实际: {match.result === 'home' ? '主胜' : match.result === 'away' ? '客胜' : '平局'}

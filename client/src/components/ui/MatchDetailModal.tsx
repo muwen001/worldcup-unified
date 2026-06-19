@@ -3,6 +3,7 @@ import type { Match, MatchResult, Prediction, DualPrediction } from '../../types
 import { formatOdds, getResultName } from '../../utils/oddsCalculator';
 import { TrendingUp, Target, BarChart3, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { Modal } from './Modal';
+import { Flag } from './Flag';
 
 interface MatchDetailModalProps {
   match: Match;
@@ -187,7 +188,7 @@ export const MatchDetailModal: React.FC<MatchDetailModalProps> = ({ match, predi
 
         <div className="flex items-center justify-between px-4">
           <div className="flex-1 text-center">
-            <div className="text-4xl mb-2">{match.homeTeam.flag}</div>
+            <Flag teamId={match.homeTeam.id} emoji={match.homeTeam.flag} className="text-4xl mb-2" />
             <div className="font-bold text-lg">{match.homeTeam.nameCn}</div>
             <div className="text-xs text-gray-400">FIFA #{match.homeTeam.fifaRank}</div>
           </div>
@@ -200,7 +201,7 @@ export const MatchDetailModal: React.FC<MatchDetailModalProps> = ({ match, predi
             )}
           </div>
           <div className="flex-1 text-center">
-            <div className="text-4xl mb-2">{match.awayTeam.flag}</div>
+            <Flag teamId={match.awayTeam.id} emoji={match.awayTeam.flag} className="text-4xl mb-2" />
             <div className="font-bold text-lg">{match.awayTeam.nameCn}</div>
             <div className="text-xs text-gray-400">FIFA #{match.awayTeam.fifaRank}</div>
           </div>

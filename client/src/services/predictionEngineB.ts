@@ -305,29 +305,8 @@ export function predictWithEngineB(match: Match): Prediction {
   scores.sort((a, b) => b.probability - a.probability);
   const scorePredictions = scores.slice(0, 5);
   if (scorePredictions.length > 0) {
-    // Smart recommendation
-    const probGap = Math.abs(probabilities.home - probabilities.away);
-    const favoredSide = probabilities.home > probabilities.away ? 'home' : 'away';
-    let recommendedIdx = 0;
-
-    if (probGap > 0.15) {
-      const multiGoalScores = scorePredictions.filter(s => {
-        const scoreDiff = Math.abs(s.homeScore - s.awayScore);
-        const winnerCorrect = (favoredSide === 'home' && s.homeScore > s.awayScore) ||
-                              (favoredSide === 'away' && s.awayScore > s.homeScore);
-        return scoreDiff >= 2 && winnerCorrect;
-      });
-      if (multiGoalScores.length > 0) {
-        recommendedIdx = scorePredictions.indexOf(multiGoalScores[0]);
-      }
-    } else if (probGap < 0.08) {
-      const drawScores = scorePredictions.filter(s => s.homeScore === s.awayScore);
-      if (drawScores.length > 0) {
-        recommendedIdx = scorePredictions.indexOf(drawScores[0]);
-      }
-    }
-
-    scorePredictions[recommendedIdx].isMostLikely = true;
+    // Mark the highest-probability score as most likely (index 0 after sort)
+    scorePredictions[0].isMostLikely = true;
     scorePredictions.forEach(s => s.probability = Math.round(s.probability * 1000) / 10);
   }
 
