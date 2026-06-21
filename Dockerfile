@@ -11,7 +11,7 @@ RUN npm ci
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
-    PORT=3001 \
+    PORT=3000 \
     BASE_PATH=/worldcup \
     STATIC_DIR=/app/public
 COPY --from=deps /app/node_modules ./node_modules
@@ -19,5 +19,5 @@ COPY server/package.json ./
 COPY server/src ./src
 COPY server/tsconfig.json ./
 COPY client/dist ./public
-EXPOSE 3001
+EXPOSE 3000
 CMD ["npx", "tsx", "src/app.ts"]

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 56">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d77a"/>
+      <stop offset="30%" stop-color="#fdf0a6"/>
+      <stop offset="60%" stop-color="#e8b830"/>
+      <stop offset="100%" stop-color="#c99818"/>
+    </linearGradient>
+  </defs>
+  <!-- Trophy -->
+  <path d="M16 22 L16 14 Q16 6 30 6 Q44 6 44 14 L44 22" fill="url(#g)" stroke="#a88420" stroke-width="1"/>
+  <ellipse cx="30" cy="22" rx="14" ry="2.5" fill="url(#g)" stroke="#a88420" stroke-width="0.8"/>
+  <path d="M16 22 L18 34 Q18 42 30 48 Q42 42 42 34 L44 22" fill="url(#g)" stroke="#a88420" stroke-width="1"/>
+  <path d="M16 17 Q12 17 10 22 Q8 28 14 34" fill="none" stroke="url(#g)" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M44 17 Q48 17 50 22 Q52 28 46 34" fill="none" stroke="url(#g)" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="30" cy="14" r="4.5" fill="#4a90d9" stroke="#2c5f8a" stroke-width="0.6"/>
+  <rect x="28" y="48" width="4" height="8" rx="1.5" fill="url(#g)" stroke="#a88420" stroke-width="0.6"/>
+  <rect x="22" y="55" width="16" height="2.5" rx="1" fill="#2d8a4e"/>
+  <!-- Text -->
+  <text x="60" y="30" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="16" fill="#f5d77a" letter-spacing="1">FIFA WORLD CUP</text>
+  <text x="60" y="46" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="13" fill="#4a90d9" letter-spacing="3">2026</text>
+</svg>

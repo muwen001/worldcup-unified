@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0a1628"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d77a"/>
+      <stop offset="30%" stop-color="#fdf0a6"/>
+      <stop offset="60%" stop-color="#e8b830"/>
+      <stop offset="100%" stop-color="#c99818"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="url(#bg)"/>
+  <!-- Trophy cup -->
+  <path d="M20 14 L20 8 Q20 3 32 3 Q44 3 44 8 L44 14" fill="url(#gold)" stroke="#a88420" stroke-width="0.8"/>
+  <ellipse cx="32" cy="14" rx="12" ry="2.5" fill="url(#gold)" stroke="#a88420" stroke-width="0.6"/>
+  <path d="M20 14 L22 24 Q22 30 32 36 Q42 30 42 24 L44 14" fill="url(#gold)" stroke="#a88420" stroke-width="0.8"/>
+  <!-- Handles -->
+  <path d="M20 16 Q12 16 12 22 Q12 30 20 30" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M44 16 Q52 16 52 22 Q52 30 44 30" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+  <!-- Globe -->
+  <circle cx="32" cy="8" r="4" fill="#4a90d9" stroke="#2c5f8a" stroke-width="0.5"/>
+  <ellipse cx="32" cy="8" rx="2" ry="3.8" fill="none" stroke="#2c5f8a" stroke-width="0.3" opacity="0.5"/>
+  <line x1="28" y1="8" x2="36" y2="8" stroke="#2c5f8a" stroke-width="0.3" opacity="0.5"/>
+  <!-- Stem -->
+  <rect x="29" y="36" width="6" height="10" rx="2" fill="url(#gold)" stroke="#a88420" stroke-width="0.6"/>
+  <!-- Base -->
+  <rect x="22" y="46" width="20" height="3.5" rx="1.5" fill="#2d8a4e" stroke="#1a6b35" stroke-width="0.5"/>
+  <rect x="18" y="50" width="28" height="3.5" rx="1.5" fill="#2d8a4e" stroke="#1a6b35" stroke-width="0.5"/>
+  <!-- 2026 -->
+  <text x="32" y="60" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="900" font-size="7" fill="#f5d77a">2026</text>
+</svg>

@@ -1,149 +1,160 @@
-# 2026世界杯预测系统 - 统一版
+# 2026世界杯预测系统
 
-这是一个合并了两个独立世界杯预测系统的统一应用，采用 React 前端 + Node.js 后端的架构。
+双引擎 AI 预测系统，React 前端 + Express 后端，实时比赛数据 + 赔率分析。
+
+## 线上地址
+
+| 域名 | 服务器 |
+|------|--------|
+| https://sgp.muwen.fun/worldcup/ | 54.64.137.190 (AWS) |
 
 ## 项目结构
 
 ```
 worldcup-unified/
-├── client/                 # React 前端
+├── client/                    # React 前端
 │   ├── src/
-│   │   ├── components/    # UI 组件
-│   │   ├── pages/         # 页面组件
-│   │   ├── services/      # API 服务层
-│   │   ├── context/       # 状态管理
-│   │   ├── types/         # TypeScript 类型
-│   │   └── utils/         # 工具函数
-│   └── package.json
-├── server/                 # Node.js 后端
+│   │   ├── components/        # UI 组件
+│   │   ├── pages/             # 页面 (比赛/球队/历史)
+│   │   ├── services/          # 双引擎预测 & API
+│   │   ├── context/           # 全局状态管理
+│   │   ├── types/             # TypeScript 类型
+│   │   └── utils/             # 工具函数
+│   └── public/                # 静态资源 (favicon, logo)
+├── server/                    # Express 后端
 │   ├── src/
-│   │   ├── api/           # API 路由
-│   │   ├── services/      # 业务逻辑
-│   │   └── data/          # 静态数据
+│   │   ├── api/               # REST API 路由
+│   │   ├── services/          # 数据服务 & 预测引擎
+│   │   └── data/              # 静态数据 & 赔率文件
 │   └── package.json
-└── README.md
+├── Dockerfile
+├── docker-compose.yml
+└── CLAUDE.md                  # Claude Code 开发指南
 ```
 
-## 功能特性
+## 双引擎预测
 
-- **实时数据**: 通过 CCTV Sports API 获取实时比赛数据
-- **赔率数据**: 通过 Sporttery.cn API 获取实时赔率
-- **智能预测**: 基于 Elo + Dixon-Coles 模型的预测引擎
-- **响应式设计**: 支持桌面和移动设备
-- **多页面**: 比赛列表、球队信息、预测历史
+| 引擎 | 算法 | 特点 |
+|------|------|------|
+| **A** (Elo+Dixon-Coles) | Elo 评分 + 泊松分布 | 基于 FIFA 排名 & 球队实力 |
+| **B** (赔率+实力) | 赔率隐含概率 + 多维对比 | 综合 form/squad/travel 因素 |
+
+预测在**客户端**生成，含平局概率校准（基于已完成比赛的经验平局率）。
 
 ## 快速开始
 
-### 1. 安装依赖
-
 ```bash
-# 安装后端依赖
-cd server
-npm install
+# 安装依赖
+cd server && npm install
+cd ../client && npm install
 
-# 安装前端依赖
-cd ../client
-npm install
+# 开发模式
+cd server && npm run dev      # :3001
+cd client && npm run dev      # :5173
 ```
-
-### 2. 启动应用
-
-```bash
-# 启动后端 (在 server 目录)
-npm run dev
-
-# 启动前端 (在 client 目录，新终端)
-npm run dev
-```
-
-### 3. 访问应用
-
-- 前端: http://localhost:5173
-- 后端 API: http://localhost:3001
-
-## API 端点
-
-### 比赛数据
-- `GET /api/matches` - 获取所有比赛
-- `GET /api/matches/:id` - 获取特定比赛
-- `GET /api/matches/date/:date` - 按日期获取比赛
-- `GET /api/matches/group/:group` - 按小组获取比赛
-
-### 预测数据
-- `GET /api/predictions` - 获取所有预测
-- `GET /api/predictions/:matchId` - 获取特定比赛预测
-- `GET /api/predictions/champion/odds` - 获取夺冠赔率
-
-### 其他数据
-- `GET /api/data/teams` - 获取球队数据
-- `GET /api/data/groups` - 获取小组数据
-- `GET /api/data/standings` - 获取积分榜
-- `GET /api/data/status` - 获取数据源状态
-
-## 技术栈
-
-### 前端
-- React 19
-- TypeScript
-- Vite
-- Tailwind CSS
-- Recharts (图表)
-- Lucide React (图标)
-
-### 后端
-- Node.js
-- Express
-- TypeScript
-- CCTV Sports API
-- Sporttery.cn API
 
 ## 数据源
 
-1. **CCTV Sports API**: 提供实时比赛数据、比分、状态
-2. **Sporttery.cn API**: 提供实时赔率数据
-3. **静态数据**: 作为备用数据源
+| 来源 | 用途 | 状态 |
+|------|------|------|
+| CCTV Sports API | 比赛赛程、比分、状态 | ✅ 自动刷新 |
+| Sporttery.cn API | 赔率数据 | ⚠️ 服务器被 CDN 拦截，使用静态文件 |
 
-## 预测引擎
+### 赔率数据更新
 
-预测引擎使用以下算法:
-- **Elo 评分系统**: 基于 FIFA 排名计算球队实力
-- **Dixon-Coles 模型**: 用于比分预测
-- **泊松分布**: 计算比分概率
-- **混合预测**: 结合赔率和球队实力
+Sporttery API 从 AWS 服务器被腾讯云 EdgeOne 拦截（HTTP 567），需从本地手动更新：
 
-## 开发说明
+```bash
+# 1. 本地拉取赔率
+curl -sL --max-time 10 \
+  -H "User-Agent: Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36" \
+  -H "Referer: https://m.sporttery.cn/" \
+  "https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c" \
+  | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+team_map = {
+    '墨西哥':'mex','南非':'rsa','韩国':'kor','捷克':'cze',
+    '加拿大':'can','波黑':'bih','卡塔尔':'qat','瑞士':'sui',
+    '巴西':'bra','摩洛哥':'mar','海地':'hai','苏格兰':'sco',
+    '美国':'usa','巴拉圭':'par','澳大利亚':'aus','土耳其':'tur',
+    '德国':'ger','库拉索':'cuw','科特迪瓦':'civ','厄瓜多尔':'ecu',
+    '荷兰':'ned','日本':'jpn','瑞典':'swe','突尼斯':'tun',
+    '比利时':'bel','埃及':'egy','伊朗':'irn','新西兰':'nzl',
+    '西班牙':'esp','佛得角':'cpv','沙特阿拉伯':'sau','乌拉圭':'uru',
+    '法国':'fra','塞内加尔':'sen','伊拉克':'irq','挪威':'nor',
+    '阿根廷':'arg','阿尔及利亚':'alg','奥地利':'aut','约旦':'jor',
+    '葡萄牙':'por','刚果(金)':'cod','哥伦比亚':'col',
+    '乌兹别克斯坦':'uzb','英格兰':'eng','克罗地亚':'cro',
+    '加纳':'gha','巴拿马':'pan',
+}
+odds = []
+for g in data['value']['matchInfoList']:
+    for m in g.get('subMatchList', []):
+        home = team_map.get(m.get('homeTeamAllName',''))
+        away = team_map.get(m.get('awayTeamAllName',''))
+        had = m.get('had', {})
+        if home and away and had.get('h'):
+            odds.append({'homeTeam':home,'awayTeam':away,'homeWin':float(had['h']),'draw':float(had['d']),'awayWin':float(had['a'])})
+json.dump(odds, open('/tmp/odds.json','w'), ensure_ascii=False)
+print(f'{len(odds)} odds entries saved')
+"
 
-### 添加新页面
-1. 在 `client/src/pages/` 创建新页面组件
-2. 在 `App.tsx` 添加路由
-3. 在 `Navigation.tsx` 添加导航项
+# 2. 上传到服务器
+scp /tmp/odds.json ubuntu@54.64.137.190:/home/ubuntu/worldcup-unified/server/src/data/odds.json
 
-### 修改预测算法
-1. 编辑 `server/src/services/predictionEngine.ts`
-2. 调整 `calculateProbabilities` 方法
-3. 测试预测结果
+# 3. 重启容器
+ssh ubuntu@54.64.137.190 "docker restart worldcup-unified"
+```
 
-### 添加新数据源
-1. 在 `server/src/services/` 创建新的 API 服务
-2. 在 `dataService.ts` 集成新数据源
-3. 更新数据合并逻辑
+## API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/matches` | 所有比赛 |
+| GET | `/api/matches/:id` | 单场比赛 |
+| GET | `/api/matches/date/:date` | 按日期 |
+| GET | `/api/matches/group/:group` | 按小组 |
+| GET | `/api/matches/status/live` | 进行中 |
+| GET | `/api/matches/status/completed` | 已结束 |
+| GET | `/api/matches/status/upcoming` | 未开始 |
+| GET | `/api/predictions` | 所有预测 |
+| GET | `/api/predictions/:matchId` | 单场预测 |
+| GET | `/api/data/teams` | 球队数据 |
+| GET | `/api/data/groups` | 小组数据 |
+| GET | `/api/data/standings` | 积分榜 |
+| GET | `/api/data/status` | 数据源状态 |
+| POST | `/api/data/update` | 手动触发数据更新 |
+| GET | `/api/health` | 健康检查 |
 
 ## 部署
 
-### Docker 部署
-```bash
-# 构建镜像
-docker build -t worldcup-unified .
+### Docker
 
-# 运行容器
-docker run -p 3000:3000 worldcup-unified
+```bash
+# 构建前端
+cd client && VITE_BASE=/worldcup/ npm run build:nocheck
+
+# 同步代码到服务器
+rsync -avz --exclude=node_modules --exclude=.git -e ssh . ubuntu@54.64.137.190:/home/ubuntu/worldcup-unified/
+
+# 构建并启动
+ssh ubuntu@54.64.137.190 "cd /home/ubuntu/worldcup-unified && docker build -t worldcup-unified . && docker run -d --name worldcup-unified -p 10880:3000 -e PORT=3000 -v /home/ubuntu/worldcup-unified/client/dist:/app/public:ro --restart unless-stopped --memory=700m worldcup-unified"
 ```
 
-### 手动部署
-1. 构建前端: `cd client && npm run build`
-2. 构建后端: `cd server && npm run build`
-3. 启动服务: `cd server && npm start`
+### Caddy 反向代理
 
-## 许可证
+```caddy
+sgp.muwen.fun {
+    reverse_proxy /worldcup* localhost:10880
+    reverse_proxy /api/*     localhost:10880
+    reverse_proxy /assets/*  localhost:10880
+}
+```
 
-ISC License
+## 技术栈
+
+- **前端**: React 19, TypeScript, Vite, Tailwind CSS, Lucide Icons
+- **后端**: Node.js, Express, TypeScript (tsx)
+- **部署**: Docker, Caddy (HTTPS)
+- **数据**: CCTV Sports API, Sporttery.cn API

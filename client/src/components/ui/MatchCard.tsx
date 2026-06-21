@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { Match, MatchResult, Prediction, DualPrediction } from '../../types';
-import { getResultName, calculateNormalizedProbabilities } from '../../utils/oddsCalculator';
+import { getResultName, getStageName, calculateNormalizedProbabilities } from '../../utils/oddsCalculator';
 import { Clock } from 'lucide-react';
 import { MatchDetailModal } from './MatchDetailModal';
 import { Flag } from './Flag';
@@ -109,15 +109,6 @@ const EnginePredictionCard: React.FC<{ data: EngineCardData; isFinished: boolean
 
 export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const mainOdds = match.odds[0];
-
-  const getStageName = (stage: string): string => {
-    const names: Record<string, string> = {
-      group: '小组赛', round_of_32: '1/32决赛', round_of_16: '1/16决赛',
-      quarter: '1/4决赛', semi: '半决赛', final: '决赛',
-    };
-    return names[stage] || stage;
-  };
 
   const isFinished = match.status === 'completed';
   const isLive = match.status === 'live';
@@ -215,7 +206,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, prediction }) => {
               <EnginePredictionCard data={engineAData} isFinished={isFinished} />
               <EnginePredictionCard data={engineBData} isFinished={isFinished} />
             </div>
-            {!mainOdds ? null : null}
           </div>
         )}
       </div>

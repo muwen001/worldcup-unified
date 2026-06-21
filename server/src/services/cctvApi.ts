@@ -2,6 +2,7 @@ import { Match, MatchStatus } from '../types/index.js';
 import { TEAMS } from '../data/staticData.js';
 
 const CCTV_API_URL = 'https://cbs-i.sports.cctv.com/cache/f26a37123b56df9205cf3948f7a3e316';
+const FETCH_TIMEOUT_MS = 10_000; // 10 seconds
 
 interface CctvMatch {
   id: number;
@@ -70,7 +71,11 @@ export async function fetchCctvMatches(): Promise<CctvFetchResult> {
   let connected = false;
 
   try {
-    const response = await fetch(CCTV_API_URL);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    const response = await fetch(CCTV_API_URL, { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!response.ok) {
       errors.push(`CCTV API HTTP ${response.status}`);
       return { matches, errors, connected };

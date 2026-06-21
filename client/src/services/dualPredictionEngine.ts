@@ -7,8 +7,8 @@ import { predictWithEngineA } from './predictionEngineA';
 import { predictWithEngineB } from './predictionEngineB';
 
 /** Empirical draw rate from 2026 WC completed matches (fallback if too few). */
-const DEFAULT_DRAW_RATE = 0.32;
-const MIN_SAMPLE = 5;
+const DEFAULT_DRAW_RATE = 0.30;
+const MIN_SAMPLE = 3;
 
 function computeEmpiricalDrawRate(matches: Match[]): number {
   const done = matches.filter((m) => m.status === 'completed' && m.score);
@@ -28,8 +28,8 @@ function calibrateDraw(pred: Prediction, empiricalDraw: number): Prediction {
   const modelDraw = probs.draw;
 
   // Blend model toward empirical draw (capped to a sane band).
-  const BLEND = 0.4;
-  const newDraw = Math.min(0.45, Math.max(0.2, modelDraw + BLEND * (empiricalDraw - modelDraw)));
+  const BLEND = 0.50;
+  const newDraw = Math.min(0.48, Math.max(0.18, modelDraw + BLEND * (empiricalDraw - modelDraw)));
   const delta = newDraw - modelDraw;
 
   const otherTotal = probs.home + probs.away;
@@ -44,11 +44,11 @@ function calibrateDraw(pred: Prediction, empiricalDraw: number): Prediction {
   probs.away /= total;
 
   const predictedOutcome: MatchResult =
-    probs.home >= probs.draw && probs.home >= probs.away
+    probs.draw >= probs.home && probs.draw >= probs.away
+      ? 'draw'
+      : probs.home >= probs.away
       ? 'home'
-      : probs.away >= probs.draw
-      ? 'away'
-      : 'draw';
+      : 'away';
 
   return { ...pred, probabilities: probs, predictedOutcome };
 }

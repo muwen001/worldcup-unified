@@ -2,6 +2,8 @@ import { Match, Team, Group, Standing, DataSourceStatus } from '../types/index.j
 import { TEAMS, GROUPS } from '../data/staticData.js';
 import { fetchCctvMatches } from './cctvApi.js';
 import { fetchSportteryData } from './sportteryApi.js';
+import fs from 'fs';
+import path from 'path';
 
 export class DataService {
   private matches: Match[] = [];
@@ -10,6 +12,7 @@ export class DataService {
   private standings: Map<string, Standing[]> = new Map();
   private h2hData: Map<string, any> = new Map();
   private lastUpdate: Date = new Date();
+  private updating = false;
   private sourceStatus: DataSourceStatus = {
     cctv: { connected: false, lastFetch: null, error: null },
     sporttery: { connected: false, lastFetch: null, error: null },
@@ -37,47 +40,84 @@ export class DataService {
   }
 
   async updateData(): Promise<void> {
-    console.log('[DataService] Updating data...');
+    // Prevent overlapping concurrent updates
+    if (this.updating) {
+      console.log('[DataService] Skipping update — previous update still in progress');
+      return;
+    }
+    this.updating = true;
 
-    // Fetch CCTV data
     try {
-      const cctvResult = await fetchCctvMatches();
-      if (cctvResult.connected && cctvResult.matches.length > 0) {
-        this.matches = cctvResult.matches;
+      console.log('[DataService] Updating data...');
+
+      // Fetch CCTV and Sporttery in parallel
+      const [cctvResult, sportteryResult] = await Promise.allSettled([
+        fetchCctvMatches(),
+        fetchSportteryData(),
+      ]);
+
+      // Process CCTV
+      if (cctvResult.status === 'fulfilled' && cctvResult.value.connected && cctvResult.value.matches.length > 0) {
+        this.matches = cctvResult.value.matches;
         this.sourceStatus.cctv = {
           connected: true,
           lastFetch: new Date().toISOString(),
           error: null,
         };
-        console.log(`[DataService] CCTV: Loaded ${cctvResult.matches.length} matches`);
+        console.log(`[DataService] CCTV: Loaded ${cctvResult.value.matches.length} matches`);
+      } else if (cctvResult.status === 'rejected') {
+        console.error('[DataService] CCTV fetch failed:', cctvResult.reason);
+        this.sourceStatus.cctv = {
+          connected: false,
+          lastFetch: this.sourceStatus.cctv.lastFetch,
+          error: String(cctvResult.reason),
+        };
+      } else {
+        const err = cctvResult.status === 'fulfilled' ? cctvResult.value.errors.join('; ') : '';
+        console.error('[DataService] CCTV fetch returned no data:', err);
+        this.sourceStatus.cctv = {
+          connected: false,
+          lastFetch: this.sourceStatus.cctv.lastFetch,
+          error: err || 'No matches returned',
+        };
       }
-    } catch (error) {
-      console.error('[DataService] CCTV fetch failed:', error);
-      this.sourceStatus.cctv.error = String(error);
-    }
 
-    // Fetch Sporttery data (odds)
-    try {
-      const sportteryResult = await fetchSportteryData();
-      if (sportteryResult.connected) {
-        this.mergeOdds(sportteryResult.odds);
+      // Process Sporttery
+      if (sportteryResult.status === 'fulfilled' && sportteryResult.value.connected) {
+        this.mergeOdds(sportteryResult.value.odds);
         this.sourceStatus.sporttery = {
           connected: true,
           lastFetch: new Date().toISOString(),
           error: null,
         };
         console.log('[DataService] Sporttery: Odds data merged');
+      } else if (sportteryResult.status === 'rejected') {
+        console.error('[DataService] Sporttery fetch failed:', sportteryResult.reason);
+        this.sourceStatus.sporttery = {
+          connected: false,
+          lastFetch: this.sourceStatus.sporttery.lastFetch,
+          error: String(sportteryResult.reason),
+        };
+      } else {
+        const err = sportteryResult.status === 'fulfilled' ? sportteryResult.value.error : '';
+        this.sourceStatus.sporttery = {
+          connected: false,
+          lastFetch: this.sourceStatus.sporttery.lastFetch,
+          error: err || 'No odds data',
+        };
       }
-    } catch (error) {
-      console.error('[DataService] Sporttery fetch failed:', error);
-      this.sourceStatus.sporttery.error = String(error);
+
+      // Fallback: load static odds from local file (when Sporttery API is blocked)
+      this.loadStaticOdds();
+
+      // Calculate standings
+      this.calculateStandings();
+
+      this.lastUpdate = new Date();
+      console.log(`[DataService] Update complete. Total matches: ${this.matches.length}`);
+    } finally {
+      this.updating = false;
     }
-
-    // Calculate standings
-    this.calculateStandings();
-
-    this.lastUpdate = new Date();
-    console.log(`[DataService] Update complete. Total matches: ${this.matches.length}`);
   }
 
   private mergeOdds(oddsData: Map<string, any>): void {
@@ -89,6 +129,28 @@ export class DataService {
         match.odds = odds;
       }
     });
+  }
+
+  private loadStaticOdds(): void {
+    try {
+      const oddsPath = path.resolve(process.cwd(), 'src/data/odds.json');
+      if (!fs.existsSync(oddsPath)) return;
+      const raw = fs.readFileSync(oddsPath, 'utf-8');
+      const oddsList: Array<{ homeTeam: string; awayTeam: string; homeWin: number; draw: number; awayWin: number }> = JSON.parse(raw);
+      let merged = 0;
+      for (const entry of oddsList) {
+        const match = this.matches.find(m => m.homeTeam === entry.homeTeam && m.awayTeam === entry.awayTeam);
+        if (match && (!match.odds || (Array.isArray(match.odds) && match.odds.length === 0))) {
+          match.odds = { home: entry.homeWin, draw: entry.draw, away: entry.awayWin };
+          merged++;
+        }
+      }
+      if (merged > 0) {
+        console.log(`[DataService] Static odds: Loaded ${merged} entries from odds.json`);
+      }
+    } catch (err) {
+      console.error('[DataService] Failed to load static odds:', err);
+    }
   }
 
   private calculateStandings(): void {
@@ -106,23 +168,29 @@ export class DataService {
         points: 0,
       }));
 
-      groupMatches.forEach(match => {
-        const homeStanding = standings.find(s => s.team.id === match.homeTeam);
-        const awayStanding = standings.find(s => s.team.id === match.awayTeam);
+      // Build lookup map for O(1) access
+      const standingMap = new Map<string, Standing>();
+      standings.forEach(s => standingMap.set(s.team.id, s));
 
-        if (homeStanding && awayStanding && match.homeScore !== null && match.awayScore !== null) {
+      groupMatches.forEach(match => {
+        const homeStanding = standingMap.get(match.homeTeam);
+        const awayStanding = standingMap.get(match.awayTeam);
+
+        if (homeStanding && awayStanding && match.score) {
+          const homeScore = match.score.home;
+          const awayScore = match.score.away;
           homeStanding.played++;
           awayStanding.played++;
-          homeStanding.goalsFor += match.homeScore;
-          homeStanding.goalsAgainst += match.awayScore;
-          awayStanding.goalsFor += match.awayScore;
-          awayStanding.goalsAgainst += match.homeScore;
+          homeStanding.goalsFor += homeScore;
+          homeStanding.goalsAgainst += awayScore;
+          awayStanding.goalsFor += awayScore;
+          awayStanding.goalsAgainst += homeScore;
 
-          if (match.homeScore > match.awayScore) {
+          if (homeScore > awayScore) {
             homeStanding.won++;
             homeStanding.points += 3;
             awayStanding.lost++;
-          } else if (match.homeScore < match.awayScore) {
+          } else if (homeScore < awayScore) {
             awayStanding.won++;
             awayStanding.points += 3;
             homeStanding.lost++;

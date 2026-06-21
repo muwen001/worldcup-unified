@@ -2,6 +2,7 @@ import { Odds } from '../types/index.js';
 import { TEAMS } from '../data/staticData.js';
 
 const SPORTTERY_API_URL = 'https://webapi.sporttery.cn/gateway/uniform/football/getMatchCalculatorV1.qry?channel=c';
+const FETCH_TIMEOUT_MS = 10_000; // 10 seconds
 
 // Sporttery Chinese team name to team ID mapping
 const TEAM_NAME_ZH_TO_ID: Record<string, string> = {};
@@ -21,8 +22,12 @@ export async function fetchSportteryData(): Promise<SportteryFetchResult> {
   let error: string | null = null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
     const response = await fetch(SPORTTERY_API_URL, {
       method: 'GET',
+      signal: controller.signal,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Mobile Safari/537.36',
         'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -30,6 +35,7 @@ export async function fetchSportteryData(): Promise<SportteryFetchResult> {
         'Origin': 'https://m.sporttery.cn',
       },
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       error = `Sporttery HTTP ${response.status}`;

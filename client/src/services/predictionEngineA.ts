@@ -16,13 +16,14 @@ const MODEL_PARAMS = {
   eloScale: 400,
   avgGoals: 1.35,
   rho: -0.13,
-  eloWeight: 0.40,
-  oddsWeight: 0.60,
+  eloWeight: 0.30,
+  oddsWeight: 0.70,
   formWeight: 0.12,
-  drawDiffThresh: 0.12,
-  drawProbThresh: 0.32,
+  drawDiffThresh: 0.20,
+  drawProbThresh: 0.22,
   formMatches: 5,
   formDecay: 0.85,
+  dcWeight: 0.55,
 };
 
 function getInitialRating(team: Team): number {
@@ -64,8 +65,8 @@ function eloToOutcomeProb(homeElo: number, awayElo: number): { home: number; dra
   const expectedHome = 1 / (1 + Math.pow(10, -eloDiff / eloScale));
 
   const eloAbsDiff = Math.abs(eloDiff);
-  const drawBase = 0.32;
-  const drawBoost = Math.max(0, 0.18 - eloAbsDiff / 1500);
+  const drawBase = 0.35;
+  const drawBoost = Math.max(0, 0.22 - eloAbsDiff / 1300);
   let pDraw = Math.min(0.42, drawBase + drawBoost);
 
   const remaining = 1 - pDraw;
@@ -169,11 +170,12 @@ export function predictWithEngineA(match: Match): Prediction {
     method = 'elo-only';
   }
 
-  // Blend DC matrix with model probabilities
+  // Blend DC matrix with model probabilities (DC-heavy for better draw sensitivity)
+  const { dcWeight } = MODEL_PARAMS;
   const composite = {
-    home: dcComposite.home * 0.6 + prob.home * 0.4,
-    draw: dcComposite.draw * 0.6 + prob.draw * 0.4,
-    away: dcComposite.away * 0.6 + prob.away * 0.4,
+    home: dcComposite.home * dcWeight + prob.home * (1 - dcWeight),
+    draw: dcComposite.draw * dcWeight + prob.draw * (1 - dcWeight),
+    away: dcComposite.away * dcWeight + prob.away * (1 - dcWeight),
   };
 
   // Normalize
@@ -182,12 +184,15 @@ export function predictWithEngineA(match: Match): Prediction {
   composite.draw /= total;
   composite.away /= total;
 
-  // Determine prediction
+  // Determine prediction — draw-aware logic
   const maxProb = Math.max(composite.home, composite.draw, composite.away);
   const diff = Math.abs(composite.home - composite.away);
 
   let predictedOutcome: MatchResult;
-  if (diff < MODEL_PARAMS.drawDiffThresh && composite.draw > MODEL_PARAMS.drawProbThresh) {
+  // Predict draw when: draw is the max probability, OR draw is close to max and home/away are close
+  if (composite.draw === maxProb) {
+    predictedOutcome = 'draw';
+  } else if (diff < MODEL_PARAMS.drawDiffThresh && composite.draw > MODEL_PARAMS.drawProbThresh) {
     predictedOutcome = 'draw';
   } else if (composite.home > composite.away) {
     predictedOutcome = 'home';
@@ -197,8 +202,8 @@ export function predictWithEngineA(match: Match): Prediction {
 
   // Confidence
   let confidence: number;
-  if (maxProb > 0.55 && diff > 0.15) confidence = 85;
-  else if (maxProb > 0.40 && diff > 0.08) confidence = 65;
+  if (maxProb > 0.50 && diff > 0.12) confidence = 80;
+  else if (maxProb > 0.38) confidence = 60;
   else confidence = 45;
 
   // Score predictions - top 5 from DC matrix

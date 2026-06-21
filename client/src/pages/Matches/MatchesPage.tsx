@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { MatchCard } from '../../components/ui/MatchCard';
 import { useApp } from '../../context/AppContext';
 import { Calendar, Filter } from 'lucide-react';
@@ -39,22 +39,68 @@ export const MatchesPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
+  const autoSelectedRef = useRef(false);
+  const dateScrollRef = useRef<HTMLDivElement>(null);
 
   const allDates = Array.from(new Set(matches.map(m => m.date))).sort();
 
-  const effectiveDate = useMemo(() => {
-    if (selectedDate !== 'all') return selectedDate;
-    if (matches.length === 0) return null;
-    return allDates.includes(today) ? today : allDates[0];
-  }, [selectedDate, matches.length, allDates]);
+  // Smart default: today; if all matches done, jump to next day with action
+  const smartDefaultDate = useMemo(() => {
+    if (allDates.length === 0) return 'all';
+    const todayMatches = matches.filter(m => m.date === today);
+    // No matches today → find nearest future date
+    if (todayMatches.length === 0) {
+      const future = allDates.filter(d => d >= today);
+      return future.length > 0 ? future[0] : allDates[allDates.length - 1];
+    }
+    // All matches today are completed → find next date with non-completed matches
+    if (todayMatches.every(m => m.status === 'completed')) {
+      for (const d of allDates) {
+        if (d <= today) continue;
+        const dayMatches = matches.filter(m => m.date === d);
+        if (dayMatches.some(m => m.status !== 'completed')) return d;
+      }
+      // All future dates also completed → show today anyway
+      return today;
+    }
+    return today;
+  }, [matches, allDates]);
 
-  const filteredMatches = matches.filter((match) => {
-    if (effectiveDate && match.date !== effectiveDate) return false;
-    if (statusFilter !== 'all' && match.status !== statusFilter) return false;
-    if (stageFilter === 'group' && match.stage !== 'group') return false;
-    if (stageFilter === 'knockout' && match.stage === 'group') return false;
-    return true;
-  });
+  // Auto-select smart default on first data load
+  useEffect(() => {
+    if (!autoSelectedRef.current && matches.length > 0 && smartDefaultDate !== 'all') {
+      autoSelectedRef.current = true;
+      setSelectedDate(smartDefaultDate);
+    }
+  }, [smartDefaultDate, matches.length]);
+
+  // Scroll selected date into view
+  useEffect(() => {
+    if (selectedDate === 'all' || !dateScrollRef.current) return;
+    const el = dateScrollRef.current.querySelector(`[data-date="${selectedDate}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    }
+  }, [selectedDate]);
+
+  // Pre-build prediction map for O(1) lookup
+  const predictionMap = useMemo(() => {
+    const map = new Map<string, typeof predictions[number]>();
+    predictions.forEach(p => map.set(p.matchId, p));
+    return map;
+  }, [predictions]);
+
+  const filteredMatches = useMemo(() => {
+    return matches.filter((match) => {
+      if (selectedDate !== 'all' && match.date !== selectedDate) return false;
+      if (statusFilter !== 'all' && match.status !== statusFilter) return false;
+      if (stageFilter === 'group' && match.stage !== 'group') return false;
+      if (stageFilter === 'knockout' && match.stage === 'group') return false;
+      return true;
+    });
+  }, [matches, selectedDate, statusFilter, stageFilter]);
+
+  const effectiveDate = selectedDate !== 'all' ? selectedDate : null;
 
   const renderDateSection = (date: string) => {
     const dateMatches = filteredMatches.filter((m) => m.date === date);
@@ -73,7 +119,7 @@ export const MatchesPage: React.FC = () => {
             <MatchCard
               key={match.id}
               match={match}
-              prediction={predictions.find((p) => p.matchId === match.id)}
+              prediction={predictionMap.get(match.id)}
             />
           ))}
         </div>
@@ -99,7 +145,7 @@ export const MatchesPage: React.FC = () => {
             {effectiveDate ? `${formatDateHeader(effectiveDate)} · ${filteredMatches.length} 场` : '全部日期'}
           </span>
         </div>
-        <div className="flex gap-1.5 overflow-x-auto pb-2">
+        <div ref={dateScrollRef} className="flex gap-1.5 overflow-x-auto pb-2">
           <button
             onClick={() => setSelectedDate('all')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
@@ -116,6 +162,7 @@ export const MatchesPage: React.FC = () => {
             return (
               <button
                 key={date}
+                data-date={date}
                 onClick={() => setSelectedDate(date)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0 ${
                   isSelected
@@ -187,7 +234,7 @@ export const MatchesPage: React.FC = () => {
               <MatchCard
                 key={match.id}
                 match={match}
-                prediction={predictions.find((p) => p.matchId === match.id)}
+                prediction={predictionMap.get(match.id)}
               />
             ))}
           </div>

@@ -125,17 +125,18 @@ function calculateWeightedProbabilities(oddsList: Odds[]) {
 
 function calculateStrengthBasedProbabilities(comparison: TeamComparison): { home: number; draw: number; away: number } {
   const strengthDiff = comparison.overallStrengthDiff;
-  const sigmoidDiff = Math.tanh(strengthDiff * 3) * 0.5;
+  const sigmoidDiff = Math.tanh(strengthDiff * 2.5) * 0.45;
 
-  const homeBase = 0.38 + sigmoidDiff;
-  const awayBase = 0.38 - sigmoidDiff;
-  const drawBase = Math.max(0.22, 0.28 - Math.abs(sigmoidDiff) * 0.20);
+  const homeBase = 0.36 + sigmoidDiff;
+  const awayBase = 0.36 - sigmoidDiff;
+  // Higher draw base — WC group stage has ~31% draw rate
+  const drawBase = Math.max(0.26, 0.34 - Math.abs(sigmoidDiff) * 0.12);
 
-  const squadShift = comparison.squadAdvantage * 0.02;
+  const squadShift = comparison.squadAdvantage * 0.015;
 
-  const home = Math.max(0.1, Math.min(0.65, homeBase + squadShift));
-  const away = Math.max(0.1, Math.min(0.65, awayBase - squadShift));
-  const draw = Math.max(0.20, Math.min(0.38, drawBase));
+  const home = Math.max(0.08, Math.min(0.60, homeBase + squadShift));
+  const away = Math.max(0.08, Math.min(0.60, awayBase - squadShift));
+  const draw = Math.max(0.22, Math.min(0.42, drawBase));
 
   const total = home + draw + away;
   return { home: home / total, draw: draw / total, away: away / total };
@@ -228,40 +229,41 @@ export function predictWithEngineB(match: Match): Prediction {
   const oddsProbs = match.odds.length > 0 ? calculateWeightedProbabilities(match.odds) : null;
   const strengthProb = calculateStrengthBasedProbabilities(comparison);
 
-  // Weight allocation
-  const oddsWeight = oddsProbs ? 0.50 : 0;
-  const strengthWeight = oddsProbs ? 0.35 : 0.85;
-  const formShift = comparison.formAdvantage / 100 * 0.15;
-  const squadShift = comparison.squadAdvantage * 0.10;
-  const travelShift = (comparison.travelAdvantage - 0) * 0.35;
+  // Weight allocation — odds-primary with strength augmentation
+  const hasOdds = oddsProbs !== null;
+  const oddsWeight = hasOdds ? 0.55 : 0;
+  const strengthWeight = hasOdds ? 0.30 : 0.85;
+  // When no odds, give draw less weight since strength model overestimates draws
+  const drawStrengthMultiplier = hasOdds ? 1.1 : 0.8;
+  const formShift = comparison.formAdvantage / 100 * 0.10;
+  const squadShift = comparison.squadAdvantage * 0.06;
+  const travelShift = (comparison.travelAdvantage - 0) * 0.15;
 
-  // Base probabilities
-  let homeProb = (oddsProbs ? oddsProbs.home * oddsWeight : 0) + strengthProb.home * strengthWeight;
-  let awayProb = (oddsProbs ? oddsProbs.away * oddsWeight : 0) + strengthProb.away * strengthWeight;
-  let drawProb = (oddsProbs ? oddsProbs.draw * (oddsWeight * 0.75) : 0) + strengthProb.draw * (strengthWeight * 1.25);
+  // Base probabilities — draw from odds is NOT discounted
+  let homeProb = (hasOdds ? oddsProbs.home * oddsWeight : 0) + strengthProb.home * strengthWeight;
+  let awayProb = (hasOdds ? oddsProbs.away * oddsWeight : 0) + strengthProb.away * strengthWeight;
+  let drawProb = (hasOdds ? oddsProbs.draw * oddsWeight : 0) + strengthProb.draw * (strengthWeight * drawStrengthMultiplier);
 
-  // Adjustments
+  // Adjustments — split between home/away, don't touch draw
   homeProb += formShift + squadShift + travelShift;
   awayProb -= formShift + squadShift + travelShift;
 
-  // Host advantage
+  // Host advantage — boosts home, reduces away, minimal draw impact
   if (hostAdvantage > 0) {
-    homeProb += hostAdvantage * 0.6;
-    awayProb -= hostAdvantage * 0.4;
-    drawProb -= hostAdvantage * 0.2;
+    homeProb += hostAdvantage * 0.5;
+    awayProb -= hostAdvantage * 0.5;
   } else if (hostAdvantage < 0) {
-    awayProb += Math.abs(hostAdvantage) * 0.6;
-    homeProb -= Math.abs(hostAdvantage) * 0.4;
-    drawProb -= Math.abs(hostAdvantage) * 0.2;
+    awayProb += Math.abs(hostAdvantage) * 0.5;
+    homeProb -= Math.abs(hostAdvantage) * 0.5;
   }
 
   // Knockout adjustment
   drawProb *= knockoutDrawFactor;
 
   // Normalize
-  homeProb = Math.max(0.02, homeProb);
-  awayProb = Math.max(0.02, awayProb);
-  drawProb = Math.max(0.02, drawProb);
+  homeProb = Math.max(0.03, homeProb);
+  awayProb = Math.max(0.03, awayProb);
+  drawProb = Math.max(0.03, drawProb);
 
   const total = homeProb + drawProb + awayProb;
   const probabilities = {
@@ -270,10 +272,12 @@ export function predictWithEngineB(match: Match): Prediction {
     away: awayProb / total,
   };
 
-  // Determine prediction with draw window
+  // Determine prediction — draw-aware with lower threshold
   const diff = Math.abs(probabilities.home - probabilities.away);
   let predictedOutcome: MatchResult;
-  if (probabilities.draw >= 0.22 && diff <= 0.15) {
+  if (probabilities.draw >= 0.24 && diff <= 0.20) {
+    predictedOutcome = 'draw';
+  } else if (probabilities.draw >= probabilities.home && probabilities.draw >= probabilities.away) {
     predictedOutcome = 'draw';
   } else if (probabilities.home >= probabilities.away) {
     predictedOutcome = 'home';

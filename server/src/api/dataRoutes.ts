@@ -30,7 +30,12 @@ dataRouter.get('/standings', async (req: Request, res: Response) => {
   try {
     const dataService: DataService = req.app.locals.dataService;
     const standings = dataService.getStandings();
-    res.json(standings);
+    // Convert Map to plain object for JSON serialization
+    const obj: Record<string, any> = {};
+    for (const [group, rows] of standings) {
+      obj[group] = rows;
+    }
+    res.json(obj);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch standings' });
   }

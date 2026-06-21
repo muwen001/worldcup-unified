@@ -2,65 +2,6 @@ import React from 'react';
 import { RefreshCw, Clock, Wifi, WifiOff, AlertCircle, CalendarDays, Shield, History } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
-// 大力神杯 SVG 图标 - FIFA World Cup Trophy
-const WorldCupTrophy: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 32 32" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="trophyGold" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#FFD700" />
-        <stop offset="30%" stopColor="#FFC125" />
-        <stop offset="70%" stopColor="#FF8C00" />
-        <stop offset="100%" stopColor="#FFD700" />
-      </linearGradient>
-      <linearGradient id="trophyHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#FFEC8B" />
-        <stop offset="100%" stopColor="#FFD700" />
-      </linearGradient>
-      <linearGradient id="baseGreen" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stopColor="#2E8B57" />
-        <stop offset="100%" stopColor="#006400" />
-      </linearGradient>
-    </defs>
-    
-    {/* 地球仪 - 顶部圆形 */}
-    <circle cx="16" cy="5" r="3.5" fill="url(#trophyGold)" stroke="#B8860B" strokeWidth="0.3"/>
-    {/* 地球上的经线 */}
-    <ellipse cx="16" cy="5" rx="1.5" ry="3.2" fill="none" stroke="#B8860B" strokeWidth="0.2" opacity="0.6"/>
-    <line x1="12.5" y1="5" x2="19.5" y2="5" stroke="#B8860B" strokeWidth="0.2" opacity="0.6"/>
-    
-    {/* 杯身上部 - 倒梯形 */}
-    <path d="M12.5 8.5 L19.5 8.5 L18 14 L14 14 Z" fill="url(#trophyGold)"/>
-    
-    {/* 杯身中部 - 最宽处 */}
-    <path d="M14 14 L18 14 L17.5 18 L14.5 18 Z" fill="url(#trophyHighlight)"/>
-    
-    {/* 杯身下部 - 收窄 */}
-    <path d="M14.5 18 L17.5 18 L17 21 L15 21 Z" fill="url(#trophyGold)"/>
-    
-    {/* 左侧把手 - 大力神左臂 */}
-    <path d="M12.5 9 C10 9 8 10 7.5 12 C7 14 8 16 10 16.5 L12 16" fill="none" stroke="url(#trophyGold)" strokeWidth="1.5" strokeLinecap="round"/>
-    
-    {/* 右侧把手 - 大力神右臂 */}
-    <path d="M19.5 9 C22 9 24 10 24.5 12 C25 14 24 16 22 16.5 L20 16" fill="none" stroke="url(#trophyGold)" strokeWidth="1.5" strokeLinecap="round"/>
-    
-    {/* 杯身装饰线 */}
-    <line x1="13.5" y1="11" x2="18.5" y2="11" stroke="#B8860B" strokeWidth="0.3" opacity="0.7"/>
-    <line x1="14" y1="15" x2="18" y2="15" stroke="#B8860B" strokeWidth="0.3" opacity="0.7"/>
-    
-    {/* 底座连接 */}
-    <rect x="14" y="21" width="4" height="1.5" rx="0.3" fill="#B8860B"/>
-    
-    {/* 底座 - 绿色孔雀石 */}
-    <rect x="11" y="22.5" width="10" height="2" rx="0.5" fill="url(#baseGreen)"/>
-    
-    {/* 底座底部 */}
-    <rect x="10" y="24.5" width="12" height="1" rx="0.3" fill="#8B7355"/>
-    
-    {/* 高光效果 */}
-    <path d="M14 9 L15 9 L14.5 13 L13.5 13 Z" fill="white" opacity="0.2"/>
-  </svg>
-);
-
 interface HeaderProps {
   currentPage: string;
   onPageChange: (page: string) => void;
@@ -83,21 +24,27 @@ export const Header: React.FC<HeaderProps> = ({ currentPage, onPageChange }) => 
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
             {/* Brand */}
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-10 h-10 bg-gradient-to-br from-amber-500/20 to-amber-600/20 rounded-xl flex items-center justify-center border border-amber-500/30 shadow-lg shadow-amber-500/10">
-                  <WorldCupTrophy className="w-7 h-7" />
-                </div>
-                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#0a1628] animate-pulse" />
-              </div>
-              <div>
-                <h1 className="text-base font-bold text-white tracking-wide">
-                  <span className="text-amber-400">FIFA</span> WORLD CUP 2026
-                </h1>
-                <p className="text-[10px] text-gray-400 tracking-widest uppercase">
-                  AI Prediction System
-                </p>
-              </div>
+            <div className="flex items-center">
+              <svg viewBox="0 0 280 56" style={{ height: '40px' }} xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="hlg" x1="0" y1="0" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#f5d77a"/>
+                    <stop offset="30%" stopColor="#fdf0a6"/>
+                    <stop offset="60%" stopColor="#e8b830"/>
+                    <stop offset="100%" stopColor="#c99818"/>
+                  </linearGradient>
+                </defs>
+                <path d="M16 22 L16 14 Q16 6 30 6 Q44 6 44 14 L44 22" fill="url(#hlg)" stroke="#a88420" strokeWidth="1"/>
+                <ellipse cx="30" cy="22" rx="14" ry="2.5" fill="url(#hlg)" stroke="#a88420" strokeWidth="0.8"/>
+                <path d="M16 22 L18 34 Q18 42 30 48 Q42 42 42 34 L44 22" fill="url(#hlg)" stroke="#a88420" strokeWidth="1"/>
+                <path d="M16 17 Q12 17 10 22 Q8 28 14 34" fill="none" stroke="url(#hlg)" strokeWidth="3.5" strokeLinecap="round"/>
+                <path d="M44 17 Q48 17 50 22 Q52 28 46 34" fill="none" stroke="url(#hlg)" strokeWidth="3.5" strokeLinecap="round"/>
+                <circle cx="30" cy="14" r="4.5" fill="#4a90d9" stroke="#2c5f8a" strokeWidth="0.6"/>
+                <rect x="28" y="48" width="4" height="8" rx="1.5" fill="url(#hlg)" stroke="#a88420" strokeWidth="0.6"/>
+                <rect x="22" y="55" width="16" height="2.5" rx="1" fill="#2d8a4e"/>
+                <text x="60" y="30" fontFamily="Arial,Helvetica,sans-serif" fontWeight="900" fontSize="16" fill="#f5d77a" letterSpacing="1">FIFA WORLD CUP</text>
+                <text x="60" y="46" fontFamily="Arial,Helvetica,sans-serif" fontWeight="700" fontSize="13" fill="#4a90d9" letterSpacing="3">2026</text>
+              </svg>
             </div>
 
             {/* Status & Actions */}

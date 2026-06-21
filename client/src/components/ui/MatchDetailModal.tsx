@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Match, MatchResult, Prediction, DualPrediction } from '../../types';
-import { formatOdds, getResultName } from '../../utils/oddsCalculator';
-import { TrendingUp, Target, BarChart3, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { formatOdds, getResultName, getStageName } from '../../utils/oddsCalculator';
+import { TrendingUp, Target, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { Modal } from './Modal';
 import { Flag } from './Flag';
 
@@ -11,11 +11,6 @@ interface MatchDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const getResultLabel = (result: MatchResult): string => {
-  const labels: Record<string, string> = { home: '主胜', draw: '平局', away: '客胜' };
-  return labels[result];
-};
 
 const getResultColor = (result: MatchResult) => {
   if (result === 'home') return 'bg-success/20 text-success';
@@ -27,18 +22,6 @@ const getConfidenceColor = (confidence: number) => {
   if (confidence >= 70) return 'text-success';
   if (confidence >= 50) return 'text-warning';
   return 'text-gray-500';
-};
-
-const getStageName = (stage: string): string => {
-  const names: Record<string, string> = {
-    group: '小组赛',
-    round_of_32: '1/32决赛',
-    round_of_16: '1/16决赛',
-    quarter: '1/4决赛',
-    semi: '半决赛',
-    final: '决赛',
-  };
-  return names[stage] || stage;
 };
 
 // Single engine prediction section
@@ -196,7 +179,7 @@ export const MatchDetailModal: React.FC<MatchDetailModalProps> = ({ match, predi
             <div className="text-4xl font-bold text-primary tracking-wider">{actualScoreText}</div>
             {isFinished && match.result && (
               <div className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-medium ${getResultColor(match.result)}`}>
-                {getResultLabel(match.result)}
+                {getResultName(match.result)}
               </div>
             )}
           </div>

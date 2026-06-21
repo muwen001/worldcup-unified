@@ -1,28 +1,34 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { CheckCircle, XCircle, TrendingUp, Target } from 'lucide-react';
+import { CheckCircle, XCircle } from 'lucide-react';
 import { Flag } from '../../components/ui/Flag';
+import { getResultName } from '../../utils/oddsCalculator';
 
 export const HistoryPage: React.FC = () => {
   const { state } = useApp();
   const { matches, predictions } = state;
 
-  const completedMatches = matches.filter(m => m.status === 'completed');
+  // Pre-build match map for O(1) lookup
+  const matchMap = useMemo(() => {
+    const map = new Map(matches.map(m => [m.id, m]));
+    return map;
+  }, [matches]);
 
-  // Engine A stats
-  const engineAPredictions = predictions.filter(p => {
-    const match = matches.find(m => m.id === p.matchId);
-    return match && match.status === 'completed' && match.result;
-  });
+  const engineAPredictions = useMemo(() => {
+    return predictions.filter(p => {
+      const match = matchMap.get(p.matchId);
+      return match && match.status === 'completed' && match.result;
+    });
+  }, [predictions, matchMap]);
+
   const engineACorrect = engineAPredictions.filter(p => {
-    const match = matches.find(m => m.id === p.matchId);
+    const match = matchMap.get(p.matchId);
     return match && match.result === p.engineA.predictedOutcome;
   }).length;
   const engineAAccuracy = engineAPredictions.length > 0 ? (engineACorrect / engineAPredictions.length) * 100 : 0;
 
-  // Engine B stats
   const engineBCorrect = engineAPredictions.filter(p => {
-    const match = matches.find(m => m.id === p.matchId);
+    const match = matchMap.get(p.matchId);
     return match && match.result === p.engineB.predictedOutcome;
   }).length;
   const engineBAccuracy = engineAPredictions.length > 0 ? (engineBCorrect / engineAPredictions.length) * 100 : 0;
@@ -88,7 +94,7 @@ export const HistoryPage: React.FC = () => {
             </div>
           ) : (
             engineAPredictions.map((pred) => {
-              const match = matches.find((m) => m.id === pred.matchId);
+              const match = matchMap.get(pred.matchId);
               if (!match) return null;
 
               const isACorrect = match.result === pred.engineA.predictedOutcome;
@@ -105,7 +111,7 @@ export const HistoryPage: React.FC = () => {
                       <Flag teamId={match.awayTeam.id} emoji={match.awayTeam.flag} className="text-2xl" />
                     </div>
                     <div className="text-sm text-gray-500">
-                      实际: {match.result === 'home' ? '主胜' : match.result === 'away' ? '客胜' : '平局'}
+                      实际: {match.result ? getResultName(match.result) : '—'}
                       {match.score && ` (${match.score.home}:${match.score.away})`}
                     </div>
                   </div>
@@ -116,7 +122,7 @@ export const HistoryPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">A</span>
                         <span className="text-sm">
-                          {pred.engineA.predictedOutcome === 'home' ? '主胜' : pred.engineA.predictedOutcome === 'away' ? '客胜' : '平局'}
+                          {getResultName(pred.engineA.predictedOutcome)}
                         </span>
                       </div>
                       {isACorrect ? (
@@ -131,7 +137,7 @@ export const HistoryPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded">B</span>
                         <span className="text-sm">
-                          {pred.engineB.predictedOutcome === 'home' ? '主胜' : pred.engineB.predictedOutcome === 'away' ? '客胜' : '平局'}
+                          {getResultName(pred.engineB.predictedOutcome)}
                         </span>
                       </div>
                       {isBCorrect ? (

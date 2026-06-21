@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import { createServer } from 'http';
 import path from 'path';
 import fs from 'fs';
 import { matchRouter } from './api/matchRoutes.js';
@@ -47,16 +46,41 @@ if (STATIC_DIR && BASE_PATH && fs.existsSync(STATIC_DIR)) {
   console.log(`[INFO] Serving static client at ${BASE_PATH} from ${STATIC_DIR}`);
 }
 
+// Periodic data refresh interval (ms)
+const REFRESH_INTERVAL_MS = 30_000; // 30 seconds
+
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleNextRefresh(): void {
+  refreshTimer = setTimeout(async () => {
+    try {
+      await dataService.updateData();
+    } catch (err) {
+      console.error('[DataService] Periodic refresh error:', err);
+    }
+    scheduleNextRefresh();
+  }, REFRESH_INTERVAL_MS);
+}
+
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server is running on http://localhost:${PORT}`);
   console.log('[INFO] Data Sources:');
   console.log('  - CCTV Sports API: Schedule, scores, match status');
   console.log('  - Sporttery.cn API: Live odds');
   console.log('[INFO] Prediction engine: Dixon-Coles model with 3-hour lock');
+  console.log(`[INFO] Data refresh interval: ${REFRESH_INTERVAL_MS / 1000}s`);
 
   // Initial data fetch
-  dataService.initialize();
+  try {
+    await dataService.initialize();
+  } catch (err) {
+    console.error('[DataService] Initialization failed:', err);
+  }
+
+  // Periodic data refresh — keeps match scores & statuses up-to-date
+  // Uses setTimeout loop (not setInterval) to prevent overlapping fetches
+  scheduleNextRefresh();
 });
 
 export default app;

@@ -95,19 +95,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadData();
   }, [loadData]);
 
-  // Polling for updates
+  // Polling for updates — setTimeout loop prevents overlapping requests
   useEffect(() => {
-    pollingRef.current = setInterval(async () => {
+    let active = true;
+
+    async function poll(): Promise<void> {
+      if (!active) return;
       try {
         await loadData();
       } catch {
         // Silently ignore polling errors
       }
-    }, 60000); // 1 minute
+      if (active) {
+        pollingRef.current = setTimeout(poll, 60_000);
+      }
+    }
+
+    // Start first poll after initial delay
+    pollingRef.current = setTimeout(poll, 60_000);
 
     return () => {
+      active = false;
       if (pollingRef.current) {
-        clearInterval(pollingRef.current);
+        clearTimeout(pollingRef.current);
         pollingRef.current = null;
       }
     };

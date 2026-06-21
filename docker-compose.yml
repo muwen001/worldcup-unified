@@ -3,7 +3,7 @@ services:
     build: .
     container_name: worldcup-unified
     ports:
-      - "8081:3001"
+      - "10880:3000"
     restart: unless-stopped
     mem_limit: 700m
     # Mount host client/dist over the baked-in public so frontend updates
