@@ -85,6 +85,13 @@ export class PredictionEngine {
         probabilities.home += draw / 2;
         probabilities.away += draw / 2;
       }
+      // 软性限幅：极端强弱悬殊场次避免出现 100%/0%，限到 [0.03, 0.97] 后重归一化
+      const cap = (v: number) => Math.max(0.03, Math.min(0.97, v));
+      probabilities.home = cap(probabilities.home);
+      probabilities.away = cap(probabilities.away);
+      const sum = probabilities.home + probabilities.away;
+      probabilities.home /= sum;
+      probabilities.away /= sum;
     }
 
     // Calculate expected goals
@@ -142,12 +149,13 @@ export class PredictionEngine {
     let homeProb = expectedHome + formAdjustment + hostAdvantage;
     let awayProb = 1 - expectedHome - formAdjustment - hostAdvantage;
 
-    // 小组赛真实表现微调（进攻/防守/综合 form 差）
+    // 小组赛真实表现微调（进攻/防守/综合 form 差）。系数较小且整体限幅，避免概率越界
     if (homeForm.played > 0 && awayForm.played > 0) {
-      const tNudge =
-        ((homeForm.formRating - awayForm.formRating) / 100) * 0.10 +
-        (homeForm.attackStrength - awayForm.attackStrength) * 0.06 +
-        (awayForm.defenseVulnerability - homeForm.defenseVulnerability) * 0.06;
+      const tNudge = Math.max(-0.10, Math.min(0.10,
+        ((homeForm.formRating - awayForm.formRating) / 100) * 0.05 +
+        (homeForm.attackStrength - awayForm.attackStrength) * 0.025 +
+        (awayForm.defenseVulnerability - homeForm.defenseVulnerability) * 0.025,
+      ));
       homeProb += tNudge;
       awayProb -= tNudge;
     }
@@ -156,6 +164,10 @@ export class PredictionEngine {
     const drawBase = 0.28;
     const drawAdjustment = Math.abs(eloDiff) < 200 ? 0.05 : -0.05;
     let drawProb = drawBase + drawAdjustment;
+
+    // Clamp to non-negative before normalize (form nudge / host advantage can overshoot)
+    homeProb = Math.max(0, homeProb);
+    awayProb = Math.max(0, awayProb);
 
     // Normalize
     const total = homeProb + drawProb + awayProb;
