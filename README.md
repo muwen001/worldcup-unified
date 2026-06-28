@@ -6,7 +6,8 @@
 
 | 域名 | 服务器 |
 |------|--------|
-| https://sgp.muwen.fun/worldcup/ | 54.64.137.190 (AWS) |
+| https://jp.muwen.fun/worldcup/ | ubuntu@54.64.137.190 |
+| https://sgp.muwen.fun/worldcup/ | root@47.84.228.1 |
 
 ## 项目结构
 
@@ -39,7 +40,16 @@ worldcup-unified/
 | **A** (Elo+Dixon-Coles) | Elo 评分 + 泊松分布 | 基于 FIFA 排名 & 球队实力 |
 | **B** (赔率+实力) | 赔率隐含概率 + 多维对比 | 综合 form/squad/travel 因素 |
 
-预测在**客户端**生成，含平局概率校准（基于已完成比赛的经验平局率）。
+预测在**客户端**生成，两个引擎各自预测后经汇总逻辑校准展示。保留 FIFA 排名 / 赔率 / H2H 主信号，并叠加**小组赛真实战绩**（W/D/L、进球能力、防守能力）作为加权信号（`tournamentForm.ts`，权重 0.4，3 场样本不压过静态评分）。
+
+- **小组赛**：经验平局率校准（`calibrateDraw`），平局率只统计小组赛已完成比赛。
+- **淘汰赛**：不产生平局，`eliminateDraw` 把 draw 概率折算进 home/away，强制 home/away 预测。
+- **阶段识别**：CCTV `roundType==='淘汰赛'` + `gameRound`（`1/16决赛`→round_of_32 等）经 `cctvApi.mapStage()` 解析。
+
+## 比赛列表阶段化展示
+
+- 日期条**跟随阶段筛选**：选「淘汰赛」只显示淘汰赛日期，选「小组赛」只显示小组赛日期。
+- **默认阶段**：小组赛全部结束后（6/28 最后一场完赛）自动默认选中「淘汰赛」，仅触发一次，之后尊重用户手动选择。
 
 ## 快速开始
 
@@ -100,11 +110,11 @@ json.dump(odds, open('/tmp/odds.json','w'), ensure_ascii=False)
 print(f'{len(odds)} odds entries saved')
 "
 
-# 2. 上传到服务器
-scp /tmp/odds.json ubuntu@54.64.137.190:/home/ubuntu/worldcup-unified/server/src/data/odds.json
+# 2. 上传到服务器（sgp）
+scp /tmp/odds.json root@47.84.228.1:/root/worldcup-unified/server/src/data/odds.json
 
 # 3. 重启容器
-ssh ubuntu@54.64.137.190 "docker restart worldcup-unified"
+ssh root@47.84.228.1 "cd /root/worldcup-unified && docker compose restart"
 ```
 
 ## API 端点
@@ -135,20 +145,20 @@ ssh ubuntu@54.64.137.190 "docker restart worldcup-unified"
 # 构建前端
 cd client && VITE_BASE=/worldcup/ npm run build:nocheck
 
-# 同步代码到服务器
-rsync -avz --exclude=node_modules --exclude=.git -e ssh . ubuntu@54.64.137.190:/home/ubuntu/worldcup-unified/
-
-# 构建并启动
-ssh ubuntu@54.64.137.190 "cd /home/ubuntu/worldcup-unified && docker build -t worldcup-unified . && docker run -d --name worldcup-unified -p 10880:3000 -e PORT=3000 -v /home/ubuntu/worldcup-unified/client/dist:/app/public:ro --restart unless-stopped --memory=700m worldcup-unified"
+# 部署到 sgp (47.84.228.1, root)
+rsync -avz --delete --exclude=node_modules --exclude=.git -e ssh ./ root@47.84.228.1:/root/worldcup-unified/
+ssh root@47.84.228.1 "cd /root/worldcup-unified && docker compose up -d --build"
 ```
+
+> jp.muwen.fun (54.64.137.190) 仍用 `docker build` + `docker run` 方式，见 CLAUDE.md。
 
 ### Caddy 反向代理
 
 ```caddy
 sgp.muwen.fun {
-    reverse_proxy /worldcup* localhost:10880
-    reverse_proxy /api/*     localhost:10880
-    reverse_proxy /assets/*  localhost:10880
+    @worldcup path /worldcup* /api/* /assets/*
+    reverse_proxy @worldcup localhost:10880
+    redir / /worldcup/ permanent
 }
 ```
 

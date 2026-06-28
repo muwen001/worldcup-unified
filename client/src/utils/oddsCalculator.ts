@@ -54,7 +54,7 @@ export function getResultName(result: MatchResult): string {
  * Get stage Chinese name
  */
 const STAGE_NAMES: Record<string, string> = {
-  group: '小组赛', round_of_32: '1/32决赛', round_of_16: '1/16决赛',
+  group: '小组赛', round_of_32: '1/16决赛', round_of_16: '1/8决赛',
   quarter: '1/4决赛', semi: '半决赛', final: '决赛',
 };
 

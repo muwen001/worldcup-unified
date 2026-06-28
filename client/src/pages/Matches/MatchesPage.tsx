@@ -42,29 +42,42 @@ export const MatchesPage: React.FC = () => {
   const autoSelectedRef = useRef(false);
   const dateScrollRef = useRef<HTMLDivElement>(null);
 
-  const allDates = Array.from(new Set(matches.map(m => m.date))).sort();
+  // 日期按阶段区分：淘汰赛阶段只展示淘汰赛日期，小组赛阶段只展示小组赛日期
+  const stageMatches = useMemo(
+    () => matches.filter(m => stageFilter === 'all' ? true : (stageFilter === 'group' ? m.stage === 'group' : m.stage !== 'group')),
+    [matches, stageFilter],
+  );
+  const visibleDates = useMemo(() => Array.from(new Set(stageMatches.map(m => m.date))).sort(), [stageMatches]);
+
+  // 阶段默认：小组赛全部结束（6/28 最后一场完赛后）且有淘汰赛 → 默认「淘汰赛」
+  const defaultStage: StageFilter = useMemo(() => {
+    if (matches.length === 0) return 'all';
+    const hasKnockout = matches.some(m => m.stage !== 'group');
+    const groupStillActive = matches.some(m => m.stage === 'group' && m.status !== 'completed');
+    return hasKnockout && !groupStillActive ? 'knockout' : 'all';
+  }, [matches]);
 
   // Smart default: today; if all matches done, jump to next day with action
   const smartDefaultDate = useMemo(() => {
-    if (allDates.length === 0) return 'all';
-    const todayMatches = matches.filter(m => m.date === today);
+    if (visibleDates.length === 0) return 'all';
+    const todayMatches = stageMatches.filter(m => m.date === today);
     // No matches today → find nearest future date
     if (todayMatches.length === 0) {
-      const future = allDates.filter(d => d >= today);
-      return future.length > 0 ? future[0] : allDates[allDates.length - 1];
+      const future = visibleDates.filter(d => d >= today);
+      return future.length > 0 ? future[0] : visibleDates[visibleDates.length - 1];
     }
     // All matches today are completed → find next date with non-completed matches
     if (todayMatches.every(m => m.status === 'completed')) {
-      for (const d of allDates) {
+      for (const d of visibleDates) {
         if (d <= today) continue;
-        const dayMatches = matches.filter(m => m.date === d);
+        const dayMatches = stageMatches.filter(m => m.date === d);
         if (dayMatches.some(m => m.status !== 'completed')) return d;
       }
       // All future dates also completed → show today anyway
       return today;
     }
     return today;
-  }, [matches, allDates]);
+  }, [stageMatches, visibleDates]);
 
   // Auto-select smart default on first data load
   useEffect(() => {
@@ -73,6 +86,25 @@ export const MatchesPage: React.FC = () => {
       setSelectedDate(smartDefaultDate);
     }
   }, [smartDefaultDate, matches.length]);
+
+  // 小组赛结束后自动把阶段筛选切到「淘汰赛」（仅触发一次，之后尊重用户手动选择）
+  const stageInitRef = useRef(false);
+  useEffect(() => {
+    if (stageInitRef.current) return;
+    if (defaultStage !== 'all') {
+      stageInitRef.current = true;
+      setStageFilter(defaultStage);
+      // 阶段切换后让日期智能默认在新阶段范围内重新选取
+      autoSelectedRef.current = false;
+    }
+  }, [defaultStage]);
+
+  // 切换阶段筛选后，若当前选中日期已不在可见日期中，重置为「全部」
+  useEffect(() => {
+    if (selectedDate !== 'all' && !visibleDates.includes(selectedDate)) {
+      setSelectedDate('all');
+    }
+  }, [visibleDates, selectedDate]);
 
   // Scroll selected date into view
   useEffect(() => {
@@ -156,7 +188,7 @@ export const MatchesPage: React.FC = () => {
           >
             全部
           </button>
-          {allDates.map((date) => {
+          {visibleDates.map((date) => {
             const isToday = date === today;
             const isSelected = selectedDate === date;
             return (
@@ -240,7 +272,7 @@ export const MatchesPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="space-y-6">{allDates.map(renderDateSection)}</div>
+        <div className="space-y-6">{visibleDates.map(renderDateSection)}</div>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useReducer, useCallback, useEffect, u
 import type { AppState, AppAction, DualPrediction } from '../types';
 import { dataService } from '../services/dataService';
 import { generateDualPredictions, generateDualPrediction } from '../services/dualPredictionEngine';
+import { computeTournamentForm } from '../services/tournamentForm';
 
 const initialState: AppState = {
   matches: [],
@@ -134,7 +135,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const match = state.matches.find((m) => m.id === matchId);
       if (!match) return;
 
-      const prediction = generateDualPrediction(match);
+      const formMap = computeTournamentForm(state.matches);
+      const prediction = generateDualPrediction(match, formMap);
       dispatch({ type: 'ADD_PREDICTION', payload: prediction });
     },
     [state.matches]

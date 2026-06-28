@@ -1,5 +1,12 @@
 import { Match, Prediction, Team, ChampionOdds } from '../types/index.js';
 import { TEAMS } from '../data/staticData.js';
+import { computeTournamentForm, getForm, type TournamentForm } from './tournamentForm.js';
+
+// 小组赛权重：3 场样本，不超过静态 Elo 主信号
+const TOURNAMENT_WEIGHT = 0.40;
+function tournamentElo(form: TournamentForm): number {
+  return 1500 + (form.formRating - 50) * 12;
+}
 
 export class PredictionEngine {
   private teamRatings: Map<string, number> = new Map();
@@ -39,7 +46,7 @@ export class PredictionEngine {
     return Math.round(baseOdds * 100) / 100;
   }
 
-  predict(match: Match): Prediction {
+  predict(match: Match, formMap?: Map<string, TournamentForm>): Prediction {
     const homeTeam = TEAMS.find(t => t.id === match.homeTeam);
     const awayTeam = TEAMS.find(t => t.id === match.awayTeam);
 
@@ -47,14 +54,41 @@ export class PredictionEngine {
       return this.createDefaultPrediction(match);
     }
 
-    const homeRating = this.teamRatings.get(match.homeTeam) || 1500;
-    const awayRating = this.teamRatings.get(match.awayTeam) || 1500;
+    const homeFifa = this.teamRatings.get(match.homeTeam) || 1500;
+    const awayFifa = this.teamRatings.get(match.awayTeam) || 1500;
+
+    // 融入小组赛真实战绩：FIFA Elo 与小组赛表现 Elo 混合
+    const homeForm = getForm(formMap, match.homeTeam);
+    const awayForm = getForm(formMap, match.awayTeam);
+    const homeRating = homeForm.played > 0
+      ? homeFifa * (1 - TOURNAMENT_WEIGHT) + tournamentElo(homeForm) * TOURNAMENT_WEIGHT
+      : homeFifa;
+    const awayRating = awayForm.played > 0
+      ? awayFifa * (1 - TOURNAMENT_WEIGHT) + tournamentElo(awayForm) * TOURNAMENT_WEIGHT
+      : awayFifa;
 
     // Calculate probabilities using Elo-based model
-    const probabilities = this.calculateProbabilities(homeRating, awayRating, homeTeam, awayTeam);
+    const probabilities = this.calculateProbabilities(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
+
+    // Knockout matches always produce a winner (extra time / penalties):
+    // drop the draw probability and redistribute it onto home/away so the
+    // outcome is never 'draw'.
+    const knockout = match.stage !== 'group';
+    if (knockout) {
+      const draw = probabilities.draw;
+      probabilities.draw = 0;
+      const other = probabilities.home + probabilities.away;
+      if (other > 0) {
+        probabilities.home += draw * (probabilities.home / other);
+        probabilities.away += draw * (probabilities.away / other);
+      } else {
+        probabilities.home += draw / 2;
+        probabilities.away += draw / 2;
+      }
+    }
 
     // Calculate expected goals
-    const expectedGoals = this.calculateExpectedGoals(homeRating, awayRating, homeTeam, awayTeam);
+    const expectedGoals = this.calculateExpectedGoals(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
 
     // Calculate score predictions
     const scorePredictions = this.calculateScorePredictions(expectedGoals);
@@ -66,7 +100,16 @@ export class PredictionEngine {
     const confidence = this.calculateConfidence(probabilities);
 
     // Generate reasoning
-    const reasoning = this.generateReasoning(probabilities, homeTeam, awayTeam, predictedOutcome);
+    let reasoning = this.generateReasoning(probabilities, homeTeam, awayTeam, predictedOutcome);
+    if (knockout) {
+      reasoning = [...reasoning, '淘汰赛不产生平局，平局概率折算为胜负'];
+    }
+    if (homeForm.played > 0) {
+      reasoning = [...reasoning, `${homeTeam.nameCn}小组赛${homeForm.won}胜${homeForm.drawn}平${homeForm.lost}负 进${homeForm.goalsFor}失${homeForm.goalsAgainst}`];
+    }
+    if (awayForm.played > 0) {
+      reasoning = [...reasoning, `${awayTeam.nameCn}小组赛${awayForm.won}胜${awayForm.drawn}平${awayForm.lost}负 进${awayForm.goalsFor}失${awayForm.goalsAgainst}`];
+    }
 
     return {
       matchId: match.id,
@@ -84,7 +127,9 @@ export class PredictionEngine {
     homeRating: number,
     awayRating: number,
     homeTeam: Team,
-    awayTeam: Team
+    awayTeam: Team,
+    homeForm: TournamentForm,
+    awayForm: TournamentForm
   ): { home: number; draw: number; away: number } {
     // Elo-based probability calculation
     const eloDiff = homeRating - awayRating + 100; // Home advantage
@@ -96,6 +141,16 @@ export class PredictionEngine {
 
     let homeProb = expectedHome + formAdjustment + hostAdvantage;
     let awayProb = 1 - expectedHome - formAdjustment - hostAdvantage;
+
+    // 小组赛真实表现微调（进攻/防守/综合 form 差）
+    if (homeForm.played > 0 && awayForm.played > 0) {
+      const tNudge =
+        ((homeForm.formRating - awayForm.formRating) / 100) * 0.10 +
+        (homeForm.attackStrength - awayForm.attackStrength) * 0.06 +
+        (awayForm.defenseVulnerability - homeForm.defenseVulnerability) * 0.06;
+      homeProb += tNudge;
+      awayProb -= tNudge;
+    }
 
     // Draw probability based on rating difference
     const drawBase = 0.28;
@@ -133,7 +188,9 @@ export class PredictionEngine {
     homeRating: number,
     awayRating: number,
     homeTeam: Team,
-    awayTeam: Team
+    awayTeam: Team,
+    homeForm: TournamentForm,
+    awayForm: TournamentForm
   ): { home: number; away: number } {
     // Base expected goals
     const baseHome = 1.4;
@@ -148,8 +205,16 @@ export class PredictionEngine {
     const homeStrength = (homeTeam.stats.attackRating + (100 - homeTeam.stats.defenseRating)) / 200;
     const awayStrength = (awayTeam.stats.attackRating + (100 - awayTeam.stats.defenseRating)) / 200;
 
-    const homeGoals = Math.max(0.5, Math.min(3.0, baseHome + homeAdj + (homeStrength - 0.5) * 0.5));
-    const awayGoals = Math.max(0.5, Math.min(3.0, baseAway + awayAdj + (awayStrength - 0.5) * 0.5));
+    let homeGoals = Math.max(0.5, Math.min(3.0, baseHome + homeAdj + (homeStrength - 0.5) * 0.5));
+    let awayGoals = Math.max(0.5, Math.min(3.0, baseAway + awayAdj + (awayStrength - 0.5) * 0.5));
+
+    // 真实进/失球能力乘性修正（中性 form=1 不变）
+    if (homeForm.played > 0 && awayForm.played > 0) {
+      const homeFactor = Math.max(0.5, Math.min(2.0, homeForm.attackStrength * awayForm.defenseVulnerability));
+      const awayFactor = Math.max(0.5, Math.min(2.0, awayForm.attackStrength * homeForm.defenseVulnerability));
+      homeGoals = Math.max(0.5, Math.min(3.0, homeGoals * homeFactor));
+      awayGoals = Math.max(0.5, Math.min(3.0, awayGoals * awayFactor));
+    }
 
     return {
       home: Math.round(homeGoals * 100) / 100,
@@ -278,7 +343,8 @@ export class PredictionEngine {
   }
 
   predictBatch(matches: Match[]): Prediction[] {
-    return matches.map(match => this.predict(match));
+    const formMap = computeTournamentForm(matches);
+    return matches.map(match => this.predict(match, formMap));
   }
 
   getChampionOdds(): ChampionOdds[] {

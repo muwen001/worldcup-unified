@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PredictionEngine } from '../services/predictionEngine.js';
 import { DataService } from '../services/dataService.js';
+import { computeTournamentForm } from '../services/tournamentForm.js';
 
 export const predictionRouter = Router();
 
@@ -26,7 +27,8 @@ predictionRouter.get('/:matchId', async (req: Request, res: Response) => {
     if (!match) {
       return res.status(404).json({ error: 'Match not found' });
     }
-    const prediction = predictionEngine.predict(match);
+    const formMap = computeTournamentForm(dataService.getMatches());
+    const prediction = predictionEngine.predict(match, formMap);
     res.json(prediction);
   } catch (error) {
     res.status(500).json({ error: 'Failed to generate prediction' });

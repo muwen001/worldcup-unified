@@ -5,6 +5,7 @@
  *       使用H2H历史记录、主客场优势、球队近期状态
  */
 import type { Match, Prediction, MatchResult, ScorePrediction, Team } from '../types';
+import { getForm, type TournamentForm } from './tournamentForm';
 
 // ── Elo Rating System ──────────────────────────────────────────
 
@@ -126,15 +127,39 @@ function buildDixonColesMatrix(homeLambda: number, awayLambda: number) {
 
 // ── Main Prediction ────────────────────────────────────────────
 
-export function predictWithEngineA(match: Match): Prediction {
+// 小组赛权重：3 场样本，不超过静态 Elo/赔率主信号
+const TOURNAMENT_WEIGHT = 0.40;
+
+function tournamentElo(form: TournamentForm): number {
+  return 1500 + (form.formRating - 50) * 12;
+}
+
+export function predictWithEngineA(match: Match, formMap?: Map<string, TournamentForm>): Prediction {
   const homeTeam = match.homeTeam;
   const awayTeam = match.awayTeam;
 
-  const homeElo = getInitialRating(homeTeam);
-  const awayElo = getInitialRating(awayTeam);
+  const homeFifaElo = getInitialRating(homeTeam);
+  const awayFifaElo = getInitialRating(awayTeam);
+
+  // 融入小组赛真实战绩：把 FIFA 排名衍生的 Elo 与小组赛表现 Elo 混合
+  const homeForm = getForm(formMap, homeTeam.id);
+  const awayForm = getForm(formMap, awayTeam.id);
+  const homeElo = homeForm.played > 0
+    ? homeFifaElo * (1 - TOURNAMENT_WEIGHT) + tournamentElo(homeForm) * TOURNAMENT_WEIGHT
+    : homeFifaElo;
+  const awayElo = awayForm.played > 0
+    ? awayFifaElo * (1 - TOURNAMENT_WEIGHT) + tournamentElo(awayForm) * TOURNAMENT_WEIGHT
+    : awayFifaElo;
 
   // Elo-based expected goals
-  const { homeLambda, awayLambda } = eloToExpectedGoals(homeElo, awayElo, homeTeam, awayTeam);
+  const { homeLambda: baseHomeLambda, awayLambda: baseAwayLambda } = eloToExpectedGoals(homeElo, awayElo, homeTeam, awayTeam);
+
+  // 用真实进/失球能力（小组赛 attackStrength / defenseVulnerability）修正 lambda：
+  // 主队进球期望 ∝ 主队进攻强度 × 客队防守脆弱度。中性 form（=1）时不变。
+  const homeScale = Math.max(0.4, Math.min(2.5, homeForm.attackStrength * awayForm.defenseVulnerability));
+  const awayScale = Math.max(0.4, Math.min(2.5, awayForm.attackStrength * homeForm.defenseVulnerability));
+  const homeLambda = Math.max(0.3, Math.min(4.0, baseHomeLambda * homeScale));
+  const awayLambda = Math.max(0.3, Math.min(4.0, baseAwayLambda * awayScale));
 
   // Dixon-Coles matrix
   const { composite: dcComposite, bestScore } = buildDixonColesMatrix(homeLambda, awayLambda);
@@ -243,6 +268,13 @@ export function predictWithEngineA(match: Match): Prediction {
   if (Math.abs(rankDiff) > 20) {
     const stronger = rankDiff > 0 ? homeTeam.nameCn : awayTeam.nameCn;
     reasoning.push(`${stronger}整体实力明显更强`);
+  }
+
+  if (homeForm.played > 0) {
+    reasoning.push(`${homeTeam.nameCn}小组赛${homeForm.won}胜${homeForm.drawn}平${homeForm.lost}负 进${homeForm.goalsFor}失${homeForm.goalsAgainst}`);
+  }
+  if (awayForm.played > 0) {
+    reasoning.push(`${awayTeam.nameCn}小组赛${awayForm.won}胜${awayForm.drawn}平${awayForm.lost}负 进${awayForm.goalsFor}失${awayForm.goalsAgainst}`);
   }
 
   return {

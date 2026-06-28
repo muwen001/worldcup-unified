@@ -5,6 +5,7 @@
  *       主场优势、阵容完整性、旅途疲劳等多维度因素
  */
 import type { Match, Prediction, MatchResult, ScorePrediction, Team, Odds } from '../types';
+import { getForm, type TournamentForm } from './tournamentForm';
 
 // ── Team Comparison ────────────────────────────────────────────
 
@@ -16,9 +17,13 @@ interface TeamComparison {
   overallStrengthDiff: number;
   squadAdvantage: number;
   travelAdvantage: number;
+  tournamentAttackAdv: number;
+  tournamentDefenseAdv: number;
+  tournamentFormAdv: number;
+  hasTournamentForm: boolean;
 }
 
-function compareTeams(home: Team, away: Team): TeamComparison {
+function compareTeams(home: Team, away: Team, formMap?: Map<string, TournamentForm>): TeamComparison {
   const attackAdvantage = home.stats.attackRating - away.stats.attackRating;
   const defenseAdvantage = home.stats.defenseRating - away.stats.defenseRating;
   const formAdvantage = home.stats.recentForm - away.stats.recentForm;
@@ -26,7 +31,21 @@ function compareTeams(home: Team, away: Team): TeamComparison {
 
   const homeStrength = calculateOverallStrength(home);
   const awayStrength = calculateOverallStrength(away);
-  const overallStrengthDiff = homeStrength - awayStrength;
+  let overallStrengthDiff = homeStrength - awayStrength;
+
+  // 小组赛真实表现叠加：进攻强度差、防守稳固度差、综合 form 差
+  const hf = getForm(formMap, home.id);
+  const af = getForm(formMap, away.id);
+  const tournamentAttackAdv = hf.attackStrength - af.attackStrength;
+  const tournamentDefenseAdv = af.defenseVulnerability - hf.defenseVulnerability; // 正=主队防守更稳
+  const tournamentFormAdv = hf.formRating - af.formRating;
+  const hasTournamentForm = hf.played > 0 && af.played > 0;
+  if (hasTournamentForm) {
+    overallStrengthDiff +=
+      (tournamentFormAdv / 100) * 0.15 +
+      tournamentAttackAdv * 0.10 +
+      tournamentDefenseAdv * 0.10;
+  }
 
   const squadAdvantage = getKeyPlayersImpact(home) - getKeyPlayersImpact(away);
   const travelAdvantage = calculateTravelFatigue(away) - calculateTravelFatigue(home);
@@ -39,6 +58,10 @@ function compareTeams(home: Team, away: Team): TeamComparison {
     overallStrengthDiff,
     squadAdvantage,
     travelAdvantage,
+    tournamentAttackAdv,
+    tournamentDefenseAdv,
+    tournamentFormAdv,
+    hasTournamentForm,
   };
 }
 
@@ -167,10 +190,15 @@ function calculateKnockoutDrawFactor(stage: string): number {
 
 // ── Expected Goals ─────────────────────────────────────────────
 
-function estimateGoalExpectation(team: Team, opponent: Team, isHome: boolean): number {
+function estimateGoalExpectation(team: Team, opponent: Team, isHome: boolean, formMap?: Map<string, TournamentForm>): number {
   const baseGoals = isHome ? 1.40 : 1.05;
-  const attackBonus = Math.max(0, (team.stats.attackRating - 50) / 100 * 0.6);
-  const defenseSuppression = Math.min(0, -(opponent.stats.defenseRating - 50) / 100 * 0.35);
+  // 有小组赛真实数据时，下调赛前静态攻防评分的权重（避免与真实进失球双重计权）
+  const tf = getForm(formMap, team.id);
+  const of = getForm(formMap, opponent.id);
+  const hasForm = tf.played > 0 && of.played > 0;
+  const staticScale = hasForm ? 0.5 : 1.0;
+  const attackBonus = Math.max(0, (team.stats.attackRating - 50) / 100 * 0.6) * staticScale;
+  const defenseSuppression = Math.min(0, -(opponent.stats.defenseRating - 50) / 100 * 0.35) * staticScale;
   const rankDiff = opponent.fifaRank - team.fifaRank;
   const rankBonus = Math.max(-0.2, Math.min(0.4, rankDiff / 100 * 0.4));
   const formBonus = Math.max(0, (team.stats.recentForm - 50) / 100 * 0.25);
@@ -178,6 +206,11 @@ function estimateGoalExpectation(team: Team, opponent: Team, isHome: boolean): n
   const squadBonus = (squadImpact - 0.85) * 0.3;
 
   let goals = baseGoals + attackBonus + defenseSuppression + rankBonus + formBonus + squadBonus;
+  // 真实进/失球能力乘性修正：进球期望 ∝ 本队进攻强度 × 对手防守脆弱度（中性=1，不变）
+  if (hasForm) {
+    const formFactor = Math.max(0.5, Math.min(2.0, tf.attackStrength * of.defenseVulnerability));
+    goals *= formFactor;
+  }
   return Math.max(0.5, Math.min(2.8, goals));
 }
 
@@ -217,11 +250,11 @@ function dixonColesCorrection(homeGoals: number, awayGoals: number, lambdaHome: 
 
 // ── Main Prediction ────────────────────────────────────────────
 
-export function predictWithEngineB(match: Match): Prediction {
+export function predictWithEngineB(match: Match, formMap?: Map<string, TournamentForm>): Prediction {
   const homeTeam = match.homeTeam;
   const awayTeam = match.awayTeam;
 
-  const comparison = compareTeams(homeTeam, awayTeam);
+  const comparison = compareTeams(homeTeam, awayTeam, formMap);
   const hostAdvantage = calculateHostAdvantage(homeTeam, awayTeam);
   const knockoutDrawFactor = calculateKnockoutDrawFactor(match.stage);
 
@@ -286,8 +319,8 @@ export function predictWithEngineB(match: Match): Prediction {
   }
 
   // Expected goals
-  const homeGoals = estimateGoalExpectation(homeTeam, awayTeam, true);
-  const awayGoals = estimateGoalExpectation(awayTeam, homeTeam, false);
+  const homeGoals = estimateGoalExpectation(homeTeam, awayTeam, true, formMap);
+  const awayGoals = estimateGoalExpectation(awayTeam, homeTeam, false, formMap);
   const lambdaHome = Math.max(0.5, Math.min(3.0, homeGoals));
   const lambdaAway = Math.max(0.5, Math.min(3.0, awayGoals));
 
@@ -352,6 +385,13 @@ export function predictWithEngineB(match: Match): Prediction {
 
   if (match.stage !== 'group') {
     reasoning.push('淘汰赛阶段比赛更保守');
+  }
+
+  if (comparison.hasTournamentForm) {
+    const hf = getForm(formMap, homeTeam.id);
+    const af = getForm(formMap, awayTeam.id);
+    reasoning.push(`${homeTeam.nameCn}小组赛${hf.won}胜${hf.drawn}平${hf.lost}负 进${hf.goalsFor}失${hf.goalsAgainst}`);
+    reasoning.push(`${awayTeam.nameCn}小组赛${af.won}胜${af.drawn}平${af.lost}负 进${af.goalsFor}失${af.goalsAgainst}`);
   }
 
   return {
