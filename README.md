@@ -43,7 +43,7 @@ worldcup-unified/
 预测在**客户端**生成，两个引擎各自预测后经汇总逻辑校准展示。保留 FIFA 排名 / 赔率 / H2H 主信号，并叠加**小组赛真实战绩**（W/D/L、进球能力、防守能力）作为加权信号（`tournamentForm.ts`，权重 0.4，3 场样本不压过静态评分）。
 
 - **小组赛**：经验平局率校准（`calibrateDraw`），平局率只统计小组赛已完成比赛。
-- **淘汰赛**：不产生平局，`eliminateDraw` 把 draw 概率折算进 home/away，强制 home/away 预测。
+- **淘汰赛**：按 **90 分钟常规时间**预测，与小组赛统一走 `calibrateDraw`，保留平局概率（淘汰赛 90 分钟打平则进加时/点球，但常规时间结果平局成立）。
 - **阶段识别**：CCTV `roundType==='淘汰赛'` + `gameRound`（`1/16决赛`→round_of_32 等）经 `cctvApi.mapStage()` 解析。
 
 ## 比赛列表阶段化展示

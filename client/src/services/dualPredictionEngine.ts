@@ -11,15 +11,9 @@ import { computeTournamentForm, type TournamentForm } from './tournamentForm';
 const DEFAULT_DRAW_RATE = 0.30;
 const MIN_SAMPLE = 3;
 
-/** Knockout stages — a winner must emerge (extra time / penalties), so the
- *  final outcome is never a draw. */
-function isKnockout(stage: string): boolean {
-  return stage !== 'group';
-}
-
 function computeEmpiricalDrawRate(matches: Match[]): number {
-  // Only group-stage completed matches carry draw signal; knockouts always
-  // produce a winner, so exclude them from the draw-rate baseline.
+  // 用小组赛已完成比赛作为 90 分钟平局率基线（小组赛比分是纯 90 分钟）。
+  // 淘汰赛已完赛的比分可能含加时/点球，不能作为 90 分钟平局信号，故排除。
   const done = matches.filter((m) => m.stage === 'group' && m.status === 'completed' && m.score);
   if (done.length < MIN_SAMPLE) return DEFAULT_DRAW_RATE;
   const draws = done.filter((m) => m.score!.home === m.score!.away).length;
@@ -62,39 +56,10 @@ function calibrateDraw(pred: Prediction, empiricalDraw: number): Prediction {
   return { ...pred, probabilities: probs, predictedOutcome };
 }
 
-/**
- * Knockout matches cannot end in a draw — a winner always emerges after
- * extra time / penalties. Drop the model's draw probability entirely and
- * redistribute it onto home/away proportionally, then force a home/away
- * prediction. Bypasses the empirical-draw calibration (which would otherwise
- * re-introduce a draw outcome that can never occur).
- */
-function eliminateDraw(pred: Prediction): Prediction {
-  const probs = { ...pred.probabilities };
-  const draw = probs.draw;
-  probs.draw = 0;
-  const otherTotal = probs.home + probs.away;
-  if (otherTotal > 0) {
-    probs.home += draw * (probs.home / otherTotal);
-    probs.away += draw * (probs.away / otherTotal);
-  } else {
-    probs.home += draw / 2;
-    probs.away += draw / 2;
-  }
-  const total = probs.home + probs.draw + probs.away;
-  probs.home /= total;
-  probs.draw /= total;
-  probs.away /= total;
-
-  const predictedOutcome: MatchResult = probs.home >= probs.away ? 'home' : 'away';
-
-  const reasoning = [...pred.reasoning, '淘汰赛不产生平局，平局概率折算为胜负'];
-  return { ...pred, probabilities: probs, predictedOutcome, reasoning };
-}
-
 function build(match: Match, formMap: Map<string, TournamentForm> | undefined, empiricalDraw: number): DualPrediction {
-  const knockout = isKnockout(match.stage);
-  const apply = (p: Prediction) => (knockout ? eliminateDraw(p) : calibrateDraw(p, empiricalDraw));
+  // 小组赛与淘汰赛统一按 90 分钟常规时间预测：均用 calibrateDraw 保留平局概率。
+  // （淘汰赛若 90 分钟打平会进入加时/点球——此处预测的是常规时间结果，平局成立。）
+  const apply = (p: Prediction) => calibrateDraw(p, empiricalDraw);
   return {
     matchId: match.id,
     engineA: apply(predictWithEngineA(match, formMap)),

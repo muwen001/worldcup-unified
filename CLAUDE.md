@@ -41,7 +41,7 @@ Sporttery API (赔率) ─┘     ↑ 每 30s setInterval 自动刷新
 | B | 赔率+实力 | 赔率隐含概率 + 球队实力混合 | `client/src/services/predictionEngineB.ts` |
 
 - 小组赛表现统计：`client/src/services/tournamentForm.ts`（`computeTournamentForm` 算每队 attackStrength / defenseVulnerability / formRating，权重 0.4）。
-- 汇总逻辑在 `client/src/services/dualPredictionEngine.ts`：小组赛用 `calibrateDraw` 经验平局率校准（只统计小组赛已完成比赛）；淘汰赛用 `eliminateDraw` 把 draw 折算进 home/away，强制 home/away 预测。
+- 汇总逻辑在 `client/src/services/dualPredictionEngine.ts`：小组赛与淘汰赛统一用 `calibrateDraw` 经验平局率校准（基线只统计小组赛已完成比赛的 90 分钟平局），保留平局概率。
 
 ### 服务端关键文件
 
@@ -107,7 +107,7 @@ ssh root@47.84.228.1 "cd /root/worldcup-unified && docker compose up -d --build"
 ## 已知注意事项
 
 - `server/src/services/cctvApi.ts:142` 有预存的 TS 类型错误（`odds: []` 不匹配 `Odds` 类型），不影响运行（tsx 不检查类型）
-- **淘汰赛阶段处理**：CCTV `roundType==='淘汰赛'` + `gameRound`（`1/16决赛`→round_of_32 等）经 `cctvApi.mapStage()` 解析为 `MatchStage`。淘汰赛不产生平局，`dualPredictionEngine.eliminateDraw()` 与服务端 `predictionEngine.predict()` 都会把 draw 概率折算进 home/away，强制 home/away 预测；`calibrateDraw` 仅作用于小组赛，经验平局率也只统计小组赛已完成比赛
+- **淘汰赛阶段处理**：CCTV `roundType==='淘汰赛'` + `gameRound`（`1/16决赛`→round_of_32 等）经 `cctvApi.mapStage()` 解析为 `MatchStage`。淘汰赛按 **90 分钟常规时间**预测，与小组赛统一走 `calibrateDraw` 保留平局概率（不再 `eliminateDraw`）；经验平局率基线只统计小组赛已完成比赛（淘汰赛已完赛比分可能含加时/点球，不作 90 分钟平局信号）
 - **小组赛战绩加权**：`tournamentForm.ts` 的 `computeTournamentForm` 从已完成小组赛算每队 attackStrength/defenseVulnerability/formRating，以 0.4 权重叠加进 Elo/赔率/实力模型（不替换静态评分）。客户端经 `dualPredictionEngine` 串联，`AppContext.predictMatch` 单场预测也会传 formMap；服务端 `predictBatch` 与 `/:matchId` 路由各自计算 form 透传
 - **比赛列表阶段化**：`MatchesPage` 日期条跟随 `stageFilter`（淘汰赛只显淘汰赛日期）；`defaultStage` 在「有淘汰赛 且 小组赛全部 completed」时为 `'knockout'`，首次加载自动选中（`stageInitRef` 仅触发一次，之后尊重用户手动选择）
 - `server/src/services/dataService.ts` 中 `calculateStandings()` 使用 `match.score?.home` 而非 `match.homeScore`（已修复）

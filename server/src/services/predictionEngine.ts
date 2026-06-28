@@ -70,30 +70,6 @@ export class PredictionEngine {
     // Calculate probabilities using Elo-based model
     const probabilities = this.calculateProbabilities(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
 
-    // Knockout matches always produce a winner (extra time / penalties):
-    // drop the draw probability and redistribute it onto home/away so the
-    // outcome is never 'draw'.
-    const knockout = match.stage !== 'group';
-    if (knockout) {
-      const draw = probabilities.draw;
-      probabilities.draw = 0;
-      const other = probabilities.home + probabilities.away;
-      if (other > 0) {
-        probabilities.home += draw * (probabilities.home / other);
-        probabilities.away += draw * (probabilities.away / other);
-      } else {
-        probabilities.home += draw / 2;
-        probabilities.away += draw / 2;
-      }
-      // 软性限幅：极端强弱悬殊场次避免出现 100%/0%，限到 [0.03, 0.97] 后重归一化
-      const cap = (v: number) => Math.max(0.03, Math.min(0.97, v));
-      probabilities.home = cap(probabilities.home);
-      probabilities.away = cap(probabilities.away);
-      const sum = probabilities.home + probabilities.away;
-      probabilities.home /= sum;
-      probabilities.away /= sum;
-    }
-
     // Calculate expected goals
     const expectedGoals = this.calculateExpectedGoals(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
 
@@ -108,9 +84,6 @@ export class PredictionEngine {
 
     // Generate reasoning
     let reasoning = this.generateReasoning(probabilities, homeTeam, awayTeam, predictedOutcome);
-    if (knockout) {
-      reasoning = [...reasoning, '淘汰赛不产生平局，平局概率折算为胜负'];
-    }
     if (homeForm.played > 0) {
       reasoning = [...reasoning, `${homeTeam.nameCn}小组赛${homeForm.won}胜${homeForm.drawn}平${homeForm.lost}负 进${homeForm.goalsFor}失${homeForm.goalsAgainst}`];
     }
