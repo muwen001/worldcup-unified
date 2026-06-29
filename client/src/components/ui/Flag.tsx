@@ -1,9 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 /**
- * Renders a team flag. Uses inline SVG for UK subdivision teams
- * (Scotland / England) because their subdivision-flag emoji does not render
- * on most platforms (Windows, many Android/Linux). All other teams use emoji.
+ * Renders a team flag.
+ *
+ * Why images instead of emoji: flag emoji (regional-indicator sequences
+ * like 🇲🇽) do NOT render on most Linux distros — Noto Color Emoji omits
+ * flag glyphs (Google dropped them for neutrality), so they show as letter
+ * pairs ("MX") or tofu on Arch/other Linux. Rendering an <img> from flagcdn
+ * works consistently across all platforms.
+ *
+ * - UK subdivisions (Scotland/England) have no standard flag emoji and use
+ *   inline SVG.
+ * - All other teams: derive the ISO alpha-2 code directly from the emoji's
+ *   two regional-indicator code points (they ARE the ISO2 letters) and load
+ *   the flag PNG from flagcdn. Falls back to the emoji if the image fails.
  */
 const SUBDIVISION_SVG: Record<string, React.ReactNode> = {
   // Scotland — Saltire (white diagonal cross on blue)
@@ -24,11 +34,25 @@ const SUBDIVISION_SVG: Record<string, React.ReactNode> = {
   ),
 };
 
+/** Convert a regional-indicator flag emoji (🇲🇽) to ISO alpha-2 ("mx"). */
+function emojiToIso2(emoji: string): string | null {
+  const chars = [...emoji];
+  if (chars.length < 2) return null;
+  const A = 0x1f1e6; // U+1F1E6 = regional indicator A
+  const c0 = chars[0].codePointAt(0);
+  const c1 = chars[1].codePointAt(0);
+  if (c0 === undefined || c1 === undefined) return null;
+  if (c0 < A || c0 > A + 25 || c1 < A || c1 > A + 25) return null;
+  return String.fromCharCode(65 + (c0 - A), 65 + (c1 - A));
+}
+
 export const Flag: React.FC<{ teamId: string; emoji: string; className?: string }> = ({
   teamId,
   emoji,
   className,
 }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+
   const svg = SUBDIVISION_SVG[teamId];
   if (svg) {
     return (
@@ -39,5 +63,31 @@ export const Flag: React.FC<{ teamId: string; emoji: string; className?: string 
       </span>
     );
   }
+
+  const iso2 = emojiToIso2(emoji);
+  if (iso2 && !imgFailed) {
+    return (
+      <span className={`inline-flex items-center justify-center align-middle ${className ?? ''}`}>
+        <img
+          src={`https://flagcdn.com/w80/${iso2}.png`}
+          srcSet={`https://flagcdn.com/w160/${iso2}.png 2x`}
+          alt={iso2}
+          loading="lazy"
+          decoding="async"
+          onError={() => setImgFailed(true)}
+          style={{
+            width: '1.5em',
+            height: '1em',
+            objectFit: 'cover',
+            borderRadius: '2px',
+            verticalAlign: 'middle',
+            display: 'inline-block',
+          }}
+        />
+      </span>
+    );
+  }
+
+  // Fallback: raw emoji (e.g. if flagcdn unreachable or non-country emoji)
   return <span className={className}>{emoji}</span>;
 };
