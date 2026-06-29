@@ -4,8 +4,32 @@ import { computeTournamentForm, getForm, type TournamentForm } from './tournamen
 
 // 小组赛权重：3 场样本，不超过静态 Elo 主信号
 const TOURNAMENT_WEIGHT = 0.40;
+// 淘汰赛阶段提升 form 权重
+const TOURNAMENT_WEIGHT_KO = 0.55;
 function tournamentElo(form: TournamentForm): number {
   return 1500 + (form.formRating - 50) * 12;
+}
+
+/** 淘汰赛平局衰减系数 */
+function knockoutDrawFactor(stage: string): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.93;
+  if (stage === 'round_of_16') return 0.90;
+  if (stage === 'quarter') return 0.87;
+  if (stage === 'semi') return 0.85;
+  if (stage === 'final') return 0.82;
+  return 1.0;
+}
+
+/** 淘汰赛期望进球衰减系数 */
+function knockoutGoalsFactor(stage: string): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.95;
+  if (stage === 'round_of_16') return 0.93;
+  if (stage === 'quarter') return 0.91;
+  if (stage === 'semi') return 0.90;
+  if (stage === 'final') return 0.90;
+  return 1.0;
 }
 
 export class PredictionEngine {
@@ -58,20 +82,25 @@ export class PredictionEngine {
     const awayFifa = this.teamRatings.get(match.awayTeam) || 1500;
 
     // 融入小组赛真实战绩：FIFA Elo 与小组赛表现 Elo 混合
+    // 淘汰赛阶段提升 form 权重
+    const isKnockout = match.stage !== 'group';
+    const tWeight = isKnockout ? TOURNAMENT_WEIGHT_KO : TOURNAMENT_WEIGHT;
     const homeForm = getForm(formMap, match.homeTeam);
     const awayForm = getForm(formMap, match.awayTeam);
+    // Momentum 加成：走势向上的球队在淘汰赛获得额外 Elo 提升
+    const momentumBonus = (form: TournamentForm) => isKnockout ? form.momentum * 25 : form.momentum * 10;
     const homeRating = homeForm.played > 0
-      ? homeFifa * (1 - TOURNAMENT_WEIGHT) + tournamentElo(homeForm) * TOURNAMENT_WEIGHT
+      ? homeFifa * (1 - tWeight) + tournamentElo(homeForm) * tWeight + momentumBonus(homeForm)
       : homeFifa;
     const awayRating = awayForm.played > 0
-      ? awayFifa * (1 - TOURNAMENT_WEIGHT) + tournamentElo(awayForm) * TOURNAMENT_WEIGHT
+      ? awayFifa * (1 - tWeight) + tournamentElo(awayForm) * tWeight + momentumBonus(awayForm)
       : awayFifa;
 
     // Calculate probabilities using Elo-based model
-    const probabilities = this.calculateProbabilities(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
+    const probabilities = this.calculateProbabilities(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm, match.stage);
 
     // Calculate expected goals
-    const expectedGoals = this.calculateExpectedGoals(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm);
+    const expectedGoals = this.calculateExpectedGoals(homeRating, awayRating, homeTeam, awayTeam, homeForm, awayForm, match.stage);
 
     // Calculate score predictions
     const scorePredictions = this.calculateScorePredictions(expectedGoals);
@@ -89,6 +118,13 @@ export class PredictionEngine {
     }
     if (awayForm.played > 0) {
       reasoning = [...reasoning, `${awayTeam.nameCn}小组赛${awayForm.won}胜${awayForm.drawn}平${awayForm.lost}负 进${awayForm.goalsFor}失${awayForm.goalsAgainst}`];
+    }
+    if (isKnockout) {
+      reasoning = [...reasoning, '淘汰赛阶段：进球率更低、平局概率下调'];
+      if (homeForm.momentum > 0.3 || awayForm.momentum > 0.3) {
+        const rising = homeForm.momentum > awayForm.momentum ? homeTeam.nameCn : awayTeam.nameCn;
+        reasoning = [...reasoning, `${rising}小组赛走势上扬，淘汰赛表现可期`];
+      }
     }
 
     return {
@@ -109,7 +145,8 @@ export class PredictionEngine {
     homeTeam: Team,
     awayTeam: Team,
     homeForm: TournamentForm,
-    awayForm: TournamentForm
+    awayForm: TournamentForm,
+    stage: string = 'group'
   ): { home: number; draw: number; away: number } {
     // Elo-based probability calculation
     const eloDiff = homeRating - awayRating + 100; // Home advantage
@@ -137,6 +174,9 @@ export class PredictionEngine {
     const drawBase = 0.28;
     const drawAdjustment = Math.abs(eloDiff) < 200 ? 0.05 : -0.05;
     let drawProb = drawBase + drawAdjustment;
+
+    // 淘汰赛平局概率衰减
+    drawProb *= knockoutDrawFactor(stage);
 
     // Clamp to non-negative before normalize (form nudge / host advantage can overshoot)
     homeProb = Math.max(0, homeProb);
@@ -175,7 +215,8 @@ export class PredictionEngine {
     homeTeam: Team,
     awayTeam: Team,
     homeForm: TournamentForm,
-    awayForm: TournamentForm
+    awayForm: TournamentForm,
+    stage: string = 'group'
   ): { home: number; away: number } {
     // Base expected goals
     const baseHome = 1.4;
@@ -200,6 +241,11 @@ export class PredictionEngine {
       homeGoals = Math.max(0.5, Math.min(3.0, homeGoals * homeFactor));
       awayGoals = Math.max(0.5, Math.min(3.0, awayGoals * awayFactor));
     }
+
+    // 淘汰赛保守化：降低期望进球
+    const koFactor = knockoutGoalsFactor(stage);
+    homeGoals *= koFactor;
+    awayGoals *= koFactor;
 
     return {
       home: Math.round(homeGoals * 100) / 100,

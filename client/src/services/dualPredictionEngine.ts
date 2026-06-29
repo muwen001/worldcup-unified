@@ -2,7 +2,7 @@
  * 双引擎预测系统
  * 同时使用两个独立的预测引擎，为每场比赛提供两种视角的预测
  */
-import type { Match, DualPrediction, Prediction, MatchResult } from '../types';
+import type { Match, DualPrediction, Prediction, MatchResult, MatchStage } from '../types';
 import { predictWithEngineA } from './predictionEngineA';
 import { predictWithEngineB } from './predictionEngineB';
 import { computeTournamentForm, type TournamentForm } from './tournamentForm';
@@ -20,19 +20,37 @@ function computeEmpiricalDrawRate(matches: Match[]): number {
   return draws / done.length;
 }
 
+/** 淘汰赛阶段对经验平局率的折扣系数 */
+function knockoutDrawDiscount(stage: MatchStage): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.92;
+  if (stage === 'round_of_16') return 0.88;
+  if (stage === 'quarter') return 0.85;
+  if (stage === 'semi') return 0.82;
+  if (stage === 'final') return 0.80;
+  return 1.0;
+}
+
 /**
  * Calibrate the win/draw/away probabilities toward the empirical draw rate.
  * Pulls the model's draw probability part-way toward reality, redistributing
  * the delta onto home/away proportionally, then renormalizes and recomputes
  * the predicted outcome.
+ *
+ * 阶段感知：淘汰赛降低经验平局率的拉拽力度（BLEND 从 0.50 降至 0.30），
+ * 同时对经验平局率本身乘以 knockoutDrawDiscount 折扣。
  */
-function calibrateDraw(pred: Prediction, empiricalDraw: number): Prediction {
+function calibrateDraw(pred: Prediction, empiricalDraw: number, stage: MatchStage): Prediction {
   const probs = { ...pred.probabilities };
   const modelDraw = probs.draw;
 
+  // 淘汰赛降低经验平局率拉拽力度
+  const isKnockout = stage !== 'group';
+  const BLEND = isKnockout ? 0.30 : 0.50;
+  const targetDraw = empiricalDraw * knockoutDrawDiscount(stage);
+
   // Blend model toward empirical draw (capped to a sane band).
-  const BLEND = 0.50;
-  const newDraw = Math.min(0.48, Math.max(0.18, modelDraw + BLEND * (empiricalDraw - modelDraw)));
+  const newDraw = Math.min(0.48, Math.max(0.18, modelDraw + BLEND * (targetDraw - modelDraw)));
   const delta = newDraw - modelDraw;
 
   const otherTotal = probs.home + probs.away;
@@ -59,7 +77,8 @@ function calibrateDraw(pred: Prediction, empiricalDraw: number): Prediction {
 function build(match: Match, formMap: Map<string, TournamentForm> | undefined, empiricalDraw: number): DualPrediction {
   // 小组赛与淘汰赛统一按 90 分钟常规时间预测：均用 calibrateDraw 保留平局概率。
   // （淘汰赛若 90 分钟打平会进入加时/点球——此处预测的是常规时间结果，平局成立。）
-  const apply = (p: Prediction) => calibrateDraw(p, empiricalDraw);
+  // 淘汰赛阶段 calibrateDraw 会降低平局率拉拽力度并折扣经验平局率。
+  const apply = (p: Prediction) => calibrateDraw(p, empiricalDraw, match.stage);
   return {
     matchId: match.id,
     engineA: apply(predictWithEngineA(match, formMap)),
@@ -80,3 +99,4 @@ export function generateDualPredictions(matches: Match[]): DualPrediction[] {
   const formMap = computeTournamentForm(matches);
   return matches.map((match) => build(match, formMap, empiricalDraw));
 }
+

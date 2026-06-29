@@ -23,7 +23,7 @@ interface TeamComparison {
   hasTournamentForm: boolean;
 }
 
-function compareTeams(home: Team, away: Team, formMap?: Map<string, TournamentForm>): TeamComparison {
+function compareTeams(home: Team, away: Team, formMap?: Map<string, TournamentForm>, stage: string = 'group'): TeamComparison {
   const attackAdvantage = home.stats.attackRating - away.stats.attackRating;
   const defenseAdvantage = home.stats.defenseRating - away.stats.defenseRating;
   const formAdvantage = home.stats.recentForm - away.stats.recentForm;
@@ -41,10 +41,17 @@ function compareTeams(home: Team, away: Team, formMap?: Map<string, TournamentFo
   const tournamentFormAdv = hf.formRating - af.formRating;
   const hasTournamentForm = hf.played > 0 && af.played > 0;
   if (hasTournamentForm) {
+    // 淘汰赛阶段提升小组赛战绩权重（3场数据已很可靠）
+    const isKO = stage !== 'group';
+    const formCoeff = isKO ? 0.25 : 0.15;
+    const atkDefCoeff = isKO ? 0.15 : 0.10;
     overallStrengthDiff +=
-      (tournamentFormAdv / 100) * 0.15 +
-      tournamentAttackAdv * 0.10 +
-      tournamentDefenseAdv * 0.10;
+      (tournamentFormAdv / 100) * formCoeff +
+      tournamentAttackAdv * atkDefCoeff +
+      tournamentDefenseAdv * atkDefCoeff;
+    // Momentum 加成：走势向上的球队获得额外实力提升
+    const momentumDiff = hf.momentum - af.momentum;
+    overallStrengthDiff += momentumDiff * 0.08;
   }
 
   const squadAdvantage = getKeyPlayersImpact(home) - getKeyPlayersImpact(away);
@@ -178,14 +185,21 @@ function calculateHostAdvantage(homeTeam: Team, awayTeam: Team): number {
 
 // ── Knockout Adjustments ───────────────────────────────────────
 
-function calculateKnockoutDrawFactor(stage: string): number {
+/**
+ * 淘汰赛平局衰减 — 智能化：实力差距越大衰减越多（强队更易 90 分钟解决），
+ * 实力接近时衰减较小（平局 + 加时更有可能）。
+ */
+function calculateKnockoutDrawFactor(stage: string, strengthDiff: number = 0): number {
   if (stage === 'group') return 1.0;
-  if (stage === 'round_of_32') return 0.95;
-  if (stage === 'round_of_16') return 0.92;
-  if (stage === 'quarter') return 0.90;
-  if (stage === 'semi') return 0.88;
-  if (stage === 'final') return 0.85;
-  return 1.0;
+  // 基础衰减按轮次递进
+  const baseFactors: Record<string, number> = {
+    round_of_32: 0.95, round_of_16: 0.92, quarter: 0.90, semi: 0.88, final: 0.85,
+  };
+  const base = baseFactors[stage] ?? 1.0;
+  // 实力差距大 → 额外衰减（强队更易在常规时间赢球）；实力接近 → 少衰减
+  const absDiff = Math.abs(strengthDiff);
+  const diffAdjust = Math.min(0.08, absDiff * 0.15);
+  return Math.max(0.75, base - diffAdjust);
 }
 
 // ── Expected Goals ─────────────────────────────────────────────
@@ -212,6 +226,17 @@ function estimateGoalExpectation(team: Team, opponent: Team, isHome: boolean, fo
     goals *= formFactor;
   }
   return Math.max(0.5, Math.min(2.8, goals));
+}
+
+/** 淘汰赛期望进球衰减系数（淘汰赛更保守、低进球） */
+function knockoutGoalsFactor(stage: string): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.95;
+  if (stage === 'round_of_16') return 0.93;
+  if (stage === 'quarter') return 0.91;
+  if (stage === 'semi') return 0.90;
+  if (stage === 'final') return 0.90;
+  return 1.0;
 }
 
 // ── Poisson Distribution ───────────────────────────────────────
@@ -254,9 +279,9 @@ export function predictWithEngineB(match: Match, formMap?: Map<string, Tournamen
   const homeTeam = match.homeTeam;
   const awayTeam = match.awayTeam;
 
-  const comparison = compareTeams(homeTeam, awayTeam, formMap);
+  const comparison = compareTeams(homeTeam, awayTeam, formMap, match.stage);
   const hostAdvantage = calculateHostAdvantage(homeTeam, awayTeam);
-  const knockoutDrawFactor = calculateKnockoutDrawFactor(match.stage);
+  const knockoutDrawFactor = calculateKnockoutDrawFactor(match.stage, comparison.overallStrengthDiff);
 
   // Get probabilities from odds and strength
   const oddsProbs = match.odds.length > 0 ? calculateWeightedProbabilities(match.odds) : null;
@@ -318,11 +343,12 @@ export function predictWithEngineB(match: Match, formMap?: Map<string, Tournamen
     predictedOutcome = 'away';
   }
 
-  // Expected goals
+  // Expected goals — 淘汰赛应用保守化衰减
   const homeGoals = estimateGoalExpectation(homeTeam, awayTeam, true, formMap);
   const awayGoals = estimateGoalExpectation(awayTeam, homeTeam, false, formMap);
-  const lambdaHome = Math.max(0.5, Math.min(3.0, homeGoals));
-  const lambdaAway = Math.max(0.5, Math.min(3.0, awayGoals));
+  const koGoalsFactor = knockoutGoalsFactor(match.stage);
+  const lambdaHome = Math.max(0.5, Math.min(3.0, homeGoals * koGoalsFactor));
+  const lambdaAway = Math.max(0.5, Math.min(3.0, awayGoals * koGoalsFactor));
 
   // Score predictions with Dixon-Coles
   const rho = adaptiveRho(probabilities, match.stage);
@@ -392,6 +418,11 @@ export function predictWithEngineB(match: Match, formMap?: Map<string, Tournamen
     const af = getForm(formMap, awayTeam.id);
     reasoning.push(`${homeTeam.nameCn}小组赛${hf.won}胜${hf.drawn}平${hf.lost}负 进${hf.goalsFor}失${hf.goalsAgainst}`);
     reasoning.push(`${awayTeam.nameCn}小组赛${af.won}胜${af.drawn}平${af.lost}负 进${af.goalsFor}失${af.goalsAgainst}`);
+    // Momentum 走势
+    if (hf.momentum > 0.3 || af.momentum > 0.3) {
+      const rising = hf.momentum > af.momentum ? homeTeam.nameCn : awayTeam.nameCn;
+      reasoning.push(`${rising}小组赛走势上扬，淘汰赛表现可期`);
+    }
   }
 
   return {

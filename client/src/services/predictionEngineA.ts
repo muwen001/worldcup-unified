@@ -134,6 +134,28 @@ function tournamentElo(form: TournamentForm): number {
   return 1500 + (form.formRating - 50) * 12;
 }
 
+/** 淘汰赛阶段平局衰减系数 */
+function knockoutDrawFactor(stage: string): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.93;
+  if (stage === 'round_of_16') return 0.90;
+  if (stage === 'quarter') return 0.87;
+  if (stage === 'semi') return 0.85;
+  if (stage === 'final') return 0.82;
+  return 1.0;
+}
+
+/** 淘汰赛期望进球衰减系数（淘汰赛更保守、低进球） */
+function knockoutGoalsFactor(stage: string): number {
+  if (stage === 'group') return 1.0;
+  if (stage === 'round_of_32') return 0.95;
+  if (stage === 'round_of_16') return 0.93;
+  if (stage === 'quarter') return 0.91;
+  if (stage === 'semi') return 0.90;
+  if (stage === 'final') return 0.90;
+  return 1.0;
+}
+
 export function predictWithEngineA(match: Match, formMap?: Map<string, TournamentForm>): Prediction {
   const homeTeam = match.homeTeam;
   const awayTeam = match.awayTeam;
@@ -142,13 +164,18 @@ export function predictWithEngineA(match: Match, formMap?: Map<string, Tournamen
   const awayFifaElo = getInitialRating(awayTeam);
 
   // 融入小组赛真实战绩：把 FIFA 排名衍生的 Elo 与小组赛表现 Elo 混合
+  // 淘汰赛阶段提升 form 权重（小组赛 3 场数据已是最相关的当前状态指标）
+  const isKnockout = match.stage !== 'group';
+  const tWeight = isKnockout ? 0.55 : TOURNAMENT_WEIGHT;
   const homeForm = getForm(formMap, homeTeam.id);
   const awayForm = getForm(formMap, awayTeam.id);
+  // Momentum 加成：走势向上的球队在淘汰赛获得额外 Elo 提升
+  const momentumBonus = (form: TournamentForm) => isKnockout ? form.momentum * 25 : form.momentum * 10;
   const homeElo = homeForm.played > 0
-    ? homeFifaElo * (1 - TOURNAMENT_WEIGHT) + tournamentElo(homeForm) * TOURNAMENT_WEIGHT
+    ? homeFifaElo * (1 - tWeight) + tournamentElo(homeForm) * tWeight + momentumBonus(homeForm)
     : homeFifaElo;
   const awayElo = awayForm.played > 0
-    ? awayFifaElo * (1 - TOURNAMENT_WEIGHT) + tournamentElo(awayForm) * TOURNAMENT_WEIGHT
+    ? awayFifaElo * (1 - tWeight) + tournamentElo(awayForm) * tWeight + momentumBonus(awayForm)
     : awayFifaElo;
 
   // Elo-based expected goals
@@ -158,8 +185,10 @@ export function predictWithEngineA(match: Match, formMap?: Map<string, Tournamen
   // 主队进球期望 ∝ 主队进攻强度 × 客队防守脆弱度。中性 form（=1）时不变。
   const homeScale = Math.max(0.4, Math.min(2.5, homeForm.attackStrength * awayForm.defenseVulnerability));
   const awayScale = Math.max(0.4, Math.min(2.5, awayForm.attackStrength * homeForm.defenseVulnerability));
-  const homeLambda = Math.max(0.3, Math.min(4.0, baseHomeLambda * homeScale));
-  const awayLambda = Math.max(0.3, Math.min(4.0, baseAwayLambda * awayScale));
+  // 淘汰赛保守化：降低期望进球（淘汰赛进球率历史上更低）
+  const koGoalsFactor = knockoutGoalsFactor(match.stage);
+  const homeLambda = Math.max(0.3, Math.min(4.0, baseHomeLambda * homeScale * koGoalsFactor));
+  const awayLambda = Math.max(0.3, Math.min(4.0, baseAwayLambda * awayScale * koGoalsFactor));
 
   // Dixon-Coles matrix
   const { composite: dcComposite, bestScore } = buildDixonColesMatrix(homeLambda, awayLambda);
@@ -202,6 +231,10 @@ export function predictWithEngineA(match: Match, formMap?: Map<string, Tournamen
     draw: dcComposite.draw * dcWeight + prob.draw * (1 - dcWeight),
     away: dcComposite.away * dcWeight + prob.away * (1 - dcWeight),
   };
+
+  // 淘汰赛平局概率衰减
+  const koDraw = knockoutDrawFactor(match.stage);
+  composite.draw *= koDraw;
 
   // Normalize
   const total = composite.home + composite.draw + composite.away;
@@ -275,6 +308,13 @@ export function predictWithEngineA(match: Match, formMap?: Map<string, Tournamen
   }
   if (awayForm.played > 0) {
     reasoning.push(`${awayTeam.nameCn}小组赛${awayForm.won}胜${awayForm.drawn}平${awayForm.lost}负 进${awayForm.goalsFor}失${awayForm.goalsAgainst}`);
+  }
+  if (isKnockout) {
+    reasoning.push('淘汰赛阶段：进球率更低、平局概率下调');
+    if (homeForm.momentum > 0.3 || awayForm.momentum > 0.3) {
+      const rising = homeForm.momentum > awayForm.momentum ? homeTeam.nameCn : awayTeam.nameCn;
+      reasoning.push(`${rising}小组赛走势上扬，淘汰赛表现可期`);
+    }
   }
 
   return {
