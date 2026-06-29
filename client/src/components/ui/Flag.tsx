@@ -6,14 +6,18 @@ import React, { useState } from 'react';
  * Why images instead of emoji: flag emoji (regional-indicator sequences
  * like 🇲🇽) do NOT render on most Linux distros — Noto Color Emoji omits
  * flag glyphs (Google dropped them for neutrality), so they show as letter
- * pairs ("MX") or tofu on Arch/other Linux. Rendering an <img> from flagcdn
- * works consistently across all platforms.
+ * pairs ("MX") or tofu on Arch/other Linux. Rendering an <img> works
+ * consistently across all platforms.
+ *
+ * Flags are bundled locally (client/public/flags/<iso2>.png) and served
+ * from the app's own origin — no external CDN, so adblockers / network
+ * blocks / DNS issues can't break them.
  *
  * - UK subdivisions (Scotland/England) have no standard flag emoji and use
  *   inline SVG.
  * - All other teams: derive the ISO alpha-2 code directly from the emoji's
  *   two regional-indicator code points (they ARE the ISO2 letters) and load
- *   the flag PNG from flagcdn. Falls back to the emoji if the image fails.
+ *   the local PNG. Falls back to the emoji if the image fails.
  */
 const SUBDIVISION_SVG: Record<string, React.ReactNode> = {
   // Scotland — Saltire (white diagonal cross on blue)
@@ -69,8 +73,7 @@ export const Flag: React.FC<{ teamId: string; emoji: string; className?: string 
     return (
       <span className={`inline-flex items-center justify-center align-middle ${className ?? ''}`}>
         <img
-          src={`https://flagcdn.com/w80/${iso2}.png`}
-          srcSet={`https://flagcdn.com/w160/${iso2}.png 2x`}
+          src={`${import.meta.env.BASE_URL}flags/${iso2}.png`}
           alt={iso2}
           loading="lazy"
           decoding="async"
